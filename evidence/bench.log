@@ -1,0 +1,13 @@
+[kkkkikun/moonbit-crdt] bench crdt_bench_test.mbt:35 ("bench gcounter merge (1000 entries)") ok
+time (mean ± σ)         range (min … max) 
+  59.91 µs ±   2.35 µs    57.58 µs …  64.98 µs  in 10 ×   1700 runs
+[kkkkikun/moonbit-crdt] bench crdt_bench_test.mbt:45 ("bench orset merge (1000 elements)") ok
+time (mean ± σ)         range (min … max) 
+ 120.62 µs ±  11.47 µs   112.95 µs … 145.28 µs  in 10 ×    830 runs
+[kkkkikun/moonbit-crdt] bench crdt_bench_test.mbt:55 ("bench orset add (1000 sequential adds)") ok
+time (mean ± σ)         range (min … max) 
+   6.87 ms ±   1.61 ms     5.87 ms …  10.08 ms  in 10 ×     16 runs
+[kkkkikun/moonbit-crdt] bench crdt_bench_test.mbt:63 ("bench lwwregister merge (1000 keys)") ok
+time (mean ± σ)         range (min … max) 
+  63.71 µs ±   1.84 µs    60.75 µs …  66.53 µs  in 10 ×   1636 runs
+Total tests: 4, passed: 4, failed: 0.

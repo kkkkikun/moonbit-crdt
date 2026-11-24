@@ -1,0 +1,26 @@
+=== moonbit-crdt ===
+
+[1] G-Counter — disjoint increments merge cleanly
+  A = A=3 (value 3)
+  B = B=5 (value 5)
+  merged = A=3;B=5 (value 8)
+  -> no increment is lost, and the merge is order-independent
+
+[2] PN-Counter — increments and decrements coexist
+  state = p=A=10|n=A=4
+  value = 6 (10 increments - 4 decrements)
+
+[3] OR-Set — concurrent add vs. remove (add wins)
+  A adds "lamp"   -> contains: true
+  B removes "lamp" -> contains: false
+  merged          -> contains: true
+  -> the removal could not cancel an addition it never observed
+
+[4] LWW-Register — concurrent writes, deterministic winner
+  A writes "light" at t=1000
+  B writes "dark"  at t=2000
+  merged value = dark
+  (the same winner is chosen no matter which side merges first)
+
+Every merge above is commutative, associative and idempotent —
+see crdt_test.mbt and the differential harness in tools/.
