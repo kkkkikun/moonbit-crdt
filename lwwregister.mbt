@@ -41,6 +41,14 @@ pub fn LWWRegister::new() -> LWWRegister {
 ///|
 /// Total order on `(wall, counter, node, value)` tuples.
 /// The `value` is never compared: it is payload, not part of the order.
+///
+/// ⚠️ The node id is compared with **`lexical_cmp`**, not with the built-in
+/// `>`: MoonBit's default string comparison is *numeric-aware*
+/// (`"node-10" > "node-2"` is **true** in MoonBit but **false** in Python),
+/// so using it here would make two implementations of the same specification
+/// elect **different winners** for the same concurrent writes.  The canonical
+/// order is therefore spelled out explicitly — the same way `canonical.mbt`
+/// does for the dot ordering.
 pub fn LWWRegister::ts_greater(
   a : (Int64, Int64, String, String),
   b : (Int64, Int64, String, String),
@@ -51,7 +59,7 @@ pub fn LWWRegister::ts_greater(
   if a.1 != b.1 {
     return a.1 > b.1
   }
-  a.2 > b.2
+  lexical_cmp(a.2, b.2) > 0
 }
 
 ///|
