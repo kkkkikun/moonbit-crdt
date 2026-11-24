@@ -364,6 +364,31 @@ test "regression: lww tie-break is the node id" {
 }
 
 ///|
+/// REGRESSION: counters and timestamps are `Int64`, not MoonBit's 32-bit
+/// `Int`.  A millisecond timestamp (~1.7e12) and a long-lived counter do not
+/// fit into 32 bits, so the arithmetic has to stay on `Int64` end to end.
+/// This test pins that boundary: the values below are already past the
+/// signed 32-bit maximum, and neither the counter total nor the timestamp
+/// comparison may wrap around.
+test "regression: counters and timestamps stay inside Int64 at the 32-bit boundary" {
+  // 2^31 = 2147483648 — one past the signed 32-bit maximum.
+  let big = 2147483648L
+  let a = @moonbit-crdt.GCounter::new().inc("A", big)
+  assert_eq(a.get("A"), big)
+  assert_eq(a.value(), big)
+  // Merging two such counters must not wrap the total around.
+  let b = @moonbit-crdt.GCounter::new().inc("B", big)
+  assert_eq(@moonbit-crdt.GCounter::merge(a, b).value(), 4294967296L)
+  // A millisecond timestamp is far beyond 2^31 as well, and the comparison
+  // between two such timestamps must still be correct.
+  let wall = 1750000000000L
+  let older = @moonbit-crdt.LWWRegister::new().set("A", "k", "older", wall, 0L)
+  let newer = @moonbit-crdt.LWWRegister::new().set("B", "k", "newer", wall + 1L, 0L)
+  assert_eq(@moonbit-crdt.LWWRegister::merge(older, newer).get("k"), Some("newer"))
+  assert_eq(@moonbit-crdt.LWWRegister::merge(newer, older).get("k"), Some("newer"))
+}
+
+///|
 /// REGRESSION (differential harness): MoonBit's built-in string comparison is
 /// numeric-aware ("C#10" < "C#2" is false), while Python's is lexicographic.
 /// The canonical order is therefore defined explicitly — UTF-16 code unit

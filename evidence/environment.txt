@@ -1,8 +1,9 @@
-# environment
-date: 2026-11-24T02:16:43+00:00
-moon 0.1.20261119 (738607b 2026-11-19) ~/.moon/bin/moon
-moonc v0.10.22+124d61d05 (2026-11-19) ~/.moon/bin/moonc
-moonrun 0.1.20261119 (738607b 2026-11-19) ~/.moon/bin/moonrun
-python: Python 3.12.3
-host: Linux 6.8.0-147-generic x86_64
-moon target: wasm-gc (default), native available
+# moonbit-crdt — environment of the recorded run
+
+date(UTC)   : 2026-11-24 12:22:58
+moon        : moon 0.1.20261119 (738607b 2026-11-19) ~/.moon/bin/moon
+python      : Python 3.12.3
+uname       : Linux 6.8.0-147-generic x86_64
+cpu         : 32 cores
+commit      : (not a git checkout)
+module      : name="kkkkikun/moonbit-crdt"
