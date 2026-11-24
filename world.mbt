@@ -28,89 +28,95 @@
 
 ///|
 /// Decodes the letter encoding used by the operation grammar.
+///|
+/// The value table used by the operation grammar.
+///
+/// The historical encoding is letters: `a` = 1 … `z` = 26, plus `0` = 0.
+/// That alphabet alone has two blind spots, and both were found by injecting
+/// defects into this implementation and asking whether the differential
+/// harness would notice:
+///
+///   * it can never express a **negative** number, so a defect that accepts a
+///     negative increment is invisible to the harness;
+///   * it can never express a number **larger than 26**, so a defect that
+///     truncates a counter to 32 bits is invisible to the harness.
+///
+/// So the table also carries `!` = -1, `@` = -2, `A` … `Z` = 27 … 52,
+/// `[` = 2^31 - 1 and `]` = 2^31 — the last one deliberately sits one past
+/// the signed 32-bit boundary, which is exactly where a truncation bug
+/// becomes visible.
+///
+/// The Python reference implementation decodes the same table
+/// (`tools/reference_crdt.py`); the two must stay in step or the differential
+/// harness would compare garbage.
+let value_tokens : Map[String, Int64] = {
+  "0": 0L,
+  "a": 1L,
+  "b": 2L,
+  "c": 3L,
+  "d": 4L,
+  "e": 5L,
+  "f": 6L,
+  "g": 7L,
+  "h": 8L,
+  "i": 9L,
+  "j": 10L,
+  "k": 11L,
+  "l": 12L,
+  "m": 13L,
+  "n": 14L,
+  "o": 15L,
+  "p": 16L,
+  "q": 17L,
+  "r": 18L,
+  "s": 19L,
+  "t": 20L,
+  "u": 21L,
+  "v": 22L,
+  "w": 23L,
+  "x": 24L,
+  "y": 25L,
+  "z": 26L,
+  "A": 27L,
+  "B": 28L,
+  "C": 29L,
+  "D": 30L,
+  "E": 31L,
+  "F": 32L,
+  "G": 33L,
+  "H": 34L,
+  "I": 35L,
+  "J": 36L,
+  "K": 37L,
+  "L": 38L,
+  "M": 39L,
+  "N": 40L,
+  "O": 41L,
+  "P": 42L,
+  "Q": 43L,
+  "R": 44L,
+  "S": 45L,
+  "T": 46L,
+  "U": 47L,
+  "V": 48L,
+  "W": 49L,
+  "X": 50L,
+  "Y": 51L,
+  "Z": 52L,
+  "!": -1L,
+  "@": -2L,
+  "[": 2147483647L,
+  "]": 2147483648L,
+}
+
+///|
+/// Decodes the value encoding used by the operation grammar.
+/// An unknown token decodes to 0.
 pub fn letter_to_int(s : String) -> Int64 {
-  if s == "0" {
-    return 0L
+  match value_tokens.get(s) {
+    Some(v) => v
+    None => 0L
   }
-  if s == "a" {
-    return 1L
-  }
-  if s == "b" {
-    return 2L
-  }
-  if s == "c" {
-    return 3L
-  }
-  if s == "d" {
-    return 4L
-  }
-  if s == "e" {
-    return 5L
-  }
-  if s == "f" {
-    return 6L
-  }
-  if s == "g" {
-    return 7L
-  }
-  if s == "h" {
-    return 8L
-  }
-  if s == "i" {
-    return 9L
-  }
-  if s == "j" {
-    return 10L
-  }
-  if s == "k" {
-    return 11L
-  }
-  if s == "l" {
-    return 12L
-  }
-  if s == "m" {
-    return 13L
-  }
-  if s == "n" {
-    return 14L
-  }
-  if s == "o" {
-    return 15L
-  }
-  if s == "p" {
-    return 16L
-  }
-  if s == "q" {
-    return 17L
-  }
-  if s == "r" {
-    return 18L
-  }
-  if s == "s" {
-    return 19L
-  }
-  if s == "t" {
-    return 20L
-  }
-  if s == "u" {
-    return 21L
-  }
-  if s == "v" {
-    return 22L
-  }
-  if s == "w" {
-    return 23L
-  }
-  if s == "x" {
-    return 24L
-  }
-  if s == "y" {
-    return 25L
-  }
-  if s == "z" {
-    return 26L
-  }
-  0L
 }
 
 ///|

@@ -1,14 +1,16 @@
 # fault injection
+# code fingerprint: f1428802f66d5f671e3a17691cf3fb3888f7b8d04344521fcc194b6d02e62ac9
 # injects two known defects into the MoonBit side and requires the
 # differential harness to catch both (and shrink them to a minimal case).
 $ python3 tools/fault_injection.py --project . --work /tmp/c05_fault --cases 800 --seed 20261124
+# code fingerprint (pristine source): f1428802f66d5f671e3a17691cf3fb3888f7b8d04344521fcc194b6d02e62ac9
 [DETECTED] S1-orset-resurrection
     exit code : 1
-    summary   : [summary] 800 cases compared, 1 mismatch(es)
-    minimal   : minimal: orset|shrink|add node-10 z;merge node-2 node-10;rem node-10 z;merge node-2 node-10
+    summary   : [summary] 800 cases compared, 299 mismatch(es)
+    minimal   : minimal: orset|shrink|add node-2 x;merge node-10 node-2;rem node-2 x;merge node-2 node-10
 [DETECTED] S2-lww-numeric-aware-tiebreak
     exit code : 1
-    summary   : [summary] 800 cases compared, 25 mismatch(es)
-    minimal   : minimal: lww|shrink|set node-2 k2 v2 e c;set node-10 k2 v3 e c;merge node-2 node-10
+    summary   : [summary] 800 cases compared, 28 mismatch(es)
+    minimal   : minimal: lww|shrink|set node-2 k1 v3 h !;set node-10 k1 v2 h !;merge node-2 node-10
 
 [verdict] 2/2 injected faults detected by the differential harness
