@@ -1,0 +1,6 @@
+import {
+  "kkkkikun/moonbit-crdt",
+  "moonbitlang/core/env",
+}
+
+pkgtype(kind: "executable")

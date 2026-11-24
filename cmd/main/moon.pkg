@@ -1,0 +1,5 @@
+import {
+  "kkkkikun/moonbit-crdt",
+}
+
+pkgtype(kind: "executable")
