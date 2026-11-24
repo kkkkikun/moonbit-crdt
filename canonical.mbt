@@ -80,7 +80,39 @@ pub fn join_with(items : Array[String], sep : String) -> String {
 }
 
 ///|
+/// Escapes the characters that are structural in the canonical format.
+///
+/// The canonical form is `k=v;k=v`, so `;` and `=` inside a key or a value
+/// would make the encoding **non-injective**: `{a: "1", b: "2"}` and
+/// `{a=1;b: "2"}` would render the same string, and two *different* states
+/// would compare equal.  The same applies to `|` now that the OR-Set renders
+/// a second section, and to `%` itself (which introduces the escape).
+///
+/// The escape is percent-encoding of the three structural characters, so it is
+/// trivially mirrored by the reference implementation.
+pub fn escape_component(s : String) -> String {
+  let mut out = ""
+  for ch in s.iter() {
+    if ch == '%' {
+      out = out + "%25"
+    } else if ch == ';' {
+      out = out + "%3B"
+    } else if ch == '=' {
+      out = out + "%3D"
+    } else if ch == '|' {
+      out = out + "%7C"
+    } else {
+      out = out + ch.to_string()
+    }
+  }
+  out
+}
+
+///|
 /// Renders `key=value` pairs as a canonical `k=v;k=v` string with keys sorted.
+///
+/// Keys and values are escaped, so the mapping from state to canonical string
+/// is **injective**: different states can never render the same string.
 pub fn canonical_pairs(pairs : Array[(String, String)]) -> String {
   let keys = []
   for (k, _) in pairs.iter() {
@@ -97,7 +129,7 @@ pub fn canonical_pairs(pairs : Array[(String, String)]) -> String {
         } else {
           out = out + ";"
         }
-        out = out + k + "=" + pv
+        out = out + escape_component(k) + "=" + escape_component(pv)
       }
     }
   }

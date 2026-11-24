@@ -88,7 +88,42 @@ test "orset: add-wins — a concurrent add survives a remove" {
 ///|
 test "orset: dots are unique per replica and per operation" {
   let a = @moonbit-crdt.ORSet::new().add("A", "x").add("A", "x")
-  assert_eq(a.canonical(), "x=A#0,A#1")
+  assert_eq(a.canonical(), "x=A#0,A#1||A=2")
+}
+
+///|
+test "orset: removal is durable — merging with a stale replica does not resurrect it" {
+  // Replica A adds "x"; replica B observes it.  A then removes "x".
+  // Merging B (which still holds the old dot) back into A must NOT bring the
+  // element back — the removal was observed by A, so it is durable.
+  //
+  // Before the tombstone fix this test failed: the removal was forgotten, and
+  // `merge(A, B)` produced `x=A#0` again.
+  let a0 = @moonbit-crdt.ORSet::new().add("A", "x")
+  let b = @moonbit-crdt.ORSet::merge(@moonbit-crdt.ORSet::new(), a0)
+  let a = @moonbit-crdt.ORSet::remove(a0, "x")
+  assert_false(a.contains("x"))
+  assert_false(@moonbit-crdt.ORSet::merge(a, b).contains("x"))
+  assert_false(@moonbit-crdt.ORSet::merge(b, a).contains("x"))
+}
+
+///|
+test "orset: a concurrent add that was never observed still survives the removal" {
+  // A removes the dot it knows; B adds the same element concurrently, with a
+  // dot A has never seen — so A's removal cannot cancel it.  This is the
+  // add-wins half of the contract, and it must survive the tombstone fix.
+  let a = @moonbit-crdt.ORSet::new().add("A", "x").remove("x")
+  let b = @moonbit-crdt.ORSet::new().add("B", "x")
+  assert_true(@moonbit-crdt.ORSet::merge(a, b).contains("x"))
+  assert_true(@moonbit-crdt.ORSet::merge(b, a).contains("x"))
+}
+
+///|
+test "orset: the tombstone is part of the canonical state" {
+  // The removed dot has to travel with the state — otherwise the differential
+  // harness cannot see it and the two implementations cannot disagree about it.
+  let a = @moonbit-crdt.ORSet::new().add("A", "x").remove("x")
+  assert_eq(a.canonical(), "x=|x=A#0|A=1")
 }
 
 ///|
@@ -106,6 +141,20 @@ test "lwwregister: the node id breaks timestamp ties deterministically" {
   // "B" > "A", so B wins — and both replicas agree on that.
   assert_eq(@moonbit-crdt.LWWRegister::merge(a, b).get("k"), Some("from-b"))
   assert_eq(@moonbit-crdt.LWWRegister::merge(b, a).get("k"), Some("from-b"))
+}
+
+///|
+test "lwwregister: the node tie-break is plain lexicographic, not numeric-aware" {
+  // "node-10" < "node-2" in plain code-unit order.
+  // MoonBit's built-in string comparison is *numeric-aware* and would elect
+  // the opposite winner — and Python's plain `>` disagrees with MoonBit's
+  // built-in too, so the two implementations would elect *different* winners
+  // for the same concurrent write.  The order is therefore spelled out with
+  // `lexical_cmp`.
+  let a = @moonbit-crdt.LWWRegister::new().set("node-10", "k", "from-node-10", 100L, 0L)
+  let b = @moonbit-crdt.LWWRegister::new().set("node-2", "k", "from-node-2", 100L, 0L)
+  assert_eq(@moonbit-crdt.LWWRegister::merge(a, b).get("k"), Some("from-node-2"))
+  assert_eq(@moonbit-crdt.LWWRegister::merge(b, a).get("k"), Some("from-node-2"))
 }
 
 ///|
@@ -263,7 +312,24 @@ test "regression: lww world applies merge operations" {
   w = w.apply(["set", "B", "k", "w", "c", "d"])
   w = w.apply(["merge", "A", "B"])
   // B's write has the greater timestamp, so A must now see it.
-  assert_eq(w.canonical(), "A=k=3.4.B=w;B=k=3.4.B=w")
+  // The canonical form escapes the structural characters: the value itself
+  // contains `=` (it renders "wall.counter.node=value"), so it comes out as
+  // `k%3D3.4.B%253Dw` — `=` → `%3D` and `%` → `%25`.
+  assert_eq(w.canonical(), "A=k%3D3.4.B%253Dw;B=k%3D3.4.B%253Dw")
+}
+
+///|
+/// REGRESSION: the canonical form must be **injective**.  Before the escaping
+/// was added, the key/value pairs were concatenated without escaping, so two
+/// different states could render the same string — and the differential
+/// harness, which compares canonical strings, could not tell them apart.
+test "regression: canonical pairs are escaped, so the encoding is injective" {
+  let pairs = [("a=1;b", "2"), ("a", "1;b=2")]
+  let rendered = @moonbit-crdt.canonical_pairs(pairs)
+  // The two pairs above would both render "a=1;b=2" without escaping.
+  assert_false(rendered == "a=1;b=2")
+  assert_true(rendered.contains("%3D"))
+  assert_true(rendered.contains("%3B"))
 }
 
 ///|

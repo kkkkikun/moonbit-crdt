@@ -64,9 +64,28 @@ def sort_key(text: str) -> bytes:
     return text.encode("utf-16-be")
 
 
+def escape_component(text: str) -> str:
+    """Escape the characters that are structural in the canonical format.
+
+    The canonical form is `k=v;k=v` (and the OR-Set adds a `|` separated
+    section), so those characters inside a key or a value would make the
+    encoding non-injective — two *different* states could render the same
+    string and compare equal.  Mirrors `escape_component` in canonical.mbt.
+    """
+    return (
+        text.replace("%", "%25")
+        .replace(";", "%3B")
+        .replace("=", "%3D")
+        .replace("|", "%7C")
+    )
+
+
 def canonical_pairs(pairs: dict) -> str:
-    """Render a mapping as `k=v;k=v` with the keys sorted."""
-    return ";".join(f"{k}={pairs[k]}" for k in sorted(pairs, key=sort_key))
+    """Render a mapping as `k=v;k=v` with the keys sorted (escaped)."""
+    return ";".join(
+        f"{escape_component(k)}={escape_component(pairs[k])}"
+        for k in sorted(pairs, key=sort_key)
+    )
 
 
 # --------------------------------------------------------------------------
@@ -129,45 +148,96 @@ class PNCounter:
 
 
 class ORSet:
-    """Observed-remove set, add-wins, using unique dots per addition."""
+    """Observed-remove set, add-wins, using unique dots per addition.
 
-    def __init__(self, elems: dict | None = None, counters: dict | None = None):
-        # elems: element -> set of dots
+    This implementation is deliberately **not** a transliteration of the
+    MoonBit one.  The MoonBit side stores *tombstones* (the removed dots) and
+    filters the merged dot set by them.  This side keeps a **per-element
+    causal context** — `seen`, every dot ever associated with the element —
+    and computes liveness with the ORSWOT / 2P-Set merge rule:
+
+        live = (live_a ∩ live_b) ∪ (live_a \\ seen_b) ∪ (live_b \\ seen_a)
+
+    i.e. a dot survives only if **both** replicas still have it, or if the
+    other replica has **never seen it** (and therefore could not have removed
+    it).  A dot that the other replica has seen *and* removed stays dead —
+    that is the observed-remove contract.
+
+    The two formulations are equivalent, but they are computed differently, so
+    a mistake in one of them surfaces as a **differential mismatch** instead
+    of being invisible in both.  (The first version of this file copied the
+    MoonBit merge rule verbatim, which meant the two sides could not possibly
+    disagree — and the differential harness proved nothing about the
+    semantics.  It also shared the same bug: a removal was forgotten, so the
+    element came back on the next merge.)
+    """
+
+    def __init__(self, elems: dict | None = None, counters: dict | None = None,
+                 seen: dict | None = None):
+        # elems: element -> set of live dots
+        # seen:  element -> set of every dot ever seen for it (live ∪ removed)
         self.elems = {k: set(v) for k, v in (elems or {}).items()}
         self.counters = dict(counters or {})
+        self.seen = {k: set(v) for k, v in (seen or {}).items()}
 
     def add(self, replica: str, elem: str) -> "ORSet":
         seq = self.counters.get(replica, 0)
         dot = f"{replica}#{seq}"
         elems = {k: set(v) for k, v in self.elems.items()}
         elems.setdefault(elem, set()).add(dot)
+        seen = {k: set(v) for k, v in self.seen.items()}
+        seen.setdefault(elem, set()).add(dot)
         counters = dict(self.counters)
         counters[replica] = seq + 1
-        return ORSet(elems, counters)
+        return ORSet(elems, counters, seen)
 
     def remove(self, elem: str) -> "ORSet":
+        # Only the dots this replica has *observed* are removed.  They stay in
+        # `seen` (the causal context), which is what makes the removal durable:
+        # a replica that later merges with a stale copy of this one will not
+        # resurrect the element.
         elems = {k: set(v) for k, v in self.elems.items()}
         if elem in elems:
             elems[elem] = set()
-        return ORSet(elems, self.counters)
+        seen = {k: set(v) for k, v in self.seen.items()}
+        return ORSet(elems, self.counters, seen)
 
     def contains(self, elem: str) -> bool:
         return len(self.elems.get(elem, ())) > 0
 
     def merge(self, other: "ORSet") -> "ORSet":
-        elems = {k: set(v) for k, v in self.elems.items()}
-        for elem, dots in other.elems.items():
-            elems.setdefault(elem, set()).update(dots)
+        elems: dict = {}
+        seen: dict = {}
+        for elem in set(self.seen) | set(other.seen):
+            live_a = self.elems.get(elem, set())
+            live_b = other.elems.get(elem, set())
+            seen_a = self.seen.get(elem, set())
+            seen_b = other.seen.get(elem, set())
+            seen[elem] = seen_a | seen_b
+            elems[elem] = (
+                (live_a & live_b) | (live_a - seen_b) | (live_b - seen_a)
+            )
         counters = dict(self.counters)
         for replica, count in other.counters.items():
             if replica not in counters or count > counters[replica]:
                 counters[replica] = count
-        return ORSet(elems, counters)
+        return ORSet(elems, counters, seen)
 
     def canonical(self) -> str:
-        return canonical_pairs(
+        live = canonical_pairs(
             {k: ",".join(sorted(v, key=sort_key)) for k, v in self.elems.items()}
         )
+        dead = canonical_pairs(
+            {
+                k: ",".join(
+                    sorted(self.seen.get(k, set()) - self.elems.get(k, set()), key=sort_key)
+                )
+                for k in self.seen
+                if self.seen.get(k, set()) - self.elems.get(k, set())
+            }
+        )
+        counters = canonical_pairs({k: str(v) for k, v in self.counters.items()})
+        return f"{live}|{dead}|{counters}"
 
 
 class LWWRegister:
@@ -183,7 +253,11 @@ class LWWRegister:
             return a[0] > b[0]
         if a[1] != b[1]:
             return a[1] > b[1]
-        return a[2] > b[2]
+        # UTF-16 code unit order — the same order the MoonBit side uses via
+        # `lexical_cmp`.  Python's plain `>` would compare by Unicode code
+        # point, and MoonBit's built-in `>` is *numeric-aware*, so both would
+        # disagree with this definition for ids like "node-2" / "node-10".
+        return a[2].encode("utf-16-be") > b[2].encode("utf-16-be")
 
     def set(self, node: str, key: str, value: str, wall: int, counter: int) -> "LWWRegister":
         entries = dict(self.entries)
