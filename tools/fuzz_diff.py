@@ -50,10 +50,59 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from reference_crdt import LETTERS, run_case  # noqa: E402
 
-REPLICAS = ["A", "B", "C"]
+# The replica ids deliberately include **multi-character** ones: the LWW
+# tie-break compares node ids as plain code-unit strings, and a single-letter
+# alphabet ("A", "B", "C") can never expose a numeric-aware comparison —
+# that bug only shows up with ids like "node-2" vs "node-10".
+REPLICAS = ["A", "B", "C", "node-2", "node-10"]
+# Ids whose order depends on the *host language's* collation.  MoonBit's
+# built-in string comparison is numeric-aware ("node-10" > "node-2"), while
+# the canonical order used by this library is plain code-unit order
+# ("node-10" < "node-2").  A write conflict decided by one of these ids is
+# therefore the **only** way the differential harness can detect a tie-break
+# that accidentally falls back to the built-in comparison — so the generator
+# produces such conflicts on purpose instead of hoping for them.
+NUMERIC_REPLICAS = ["node-2", "node-10"]
 ELEMENTS = ["x", "y", "z"]
 KEYS = ["k1", "k2"]
 VALUES = ["v1", "v2", "v3"]
+
+# Probability that a generated LWW stream contains a *deliberate* write
+# conflict: two replicas write the same key with the same (wall, counter),
+# so the winner can only be decided by comparing the node ids.
+TIE_PROBABILITY = 0.4
+
+
+def tie_pair(rng: random.Random) -> list:
+    """Two concurrent writes that only the node id can decide.
+
+    Both replicas write the *same* key with the *same* ``(wall, counter)``.
+    The merge therefore has to fall back to comparing the node ids — the one
+    place where two implementations of the same specification are known to
+    disagree if the tie-break uses the host language's collation.
+    """
+    left, right = rng.sample(NUMERIC_REPLICAS, 2)
+    key = rng.choice(KEYS)
+    wall = rng.choice(LETTERS)
+    counter = rng.choice(LETTERS)
+    return [
+        ["set", left, key, rng.choice(VALUES), wall, counter],
+        ["set", right, key, rng.choice(VALUES), wall, counter],
+    ]
+
+
+def node_decided_conflicts(ops: list) -> int:
+    """Count write conflicts in an LWW stream that only the node id decides."""
+    written: dict[str, dict[str, tuple[str, str]]] = {}
+    for op in ops:
+        if op[0] == "set":
+            _, replica, key, _value, wall, counter = op
+            written.setdefault(replica, {})[key] = (wall, counter)
+    stamps: dict[tuple[str, str, str], set[str]] = {}
+    for replica, keys in written.items():
+        for key, (wall, counter) in keys.items():
+            stamps.setdefault((key, wall, counter), set()).add(replica)
+    return sum(1 for nodes in stamps.values() if len(nodes) > 1)
 
 
 def random_ops(rng: random.Random, family: str, length: int) -> list:
@@ -93,6 +142,11 @@ def random_ops(rng: random.Random, family: str, length: int) -> list:
                     rng.choice(LETTERS),
                     rng.choice(LETTERS),
                 ])
+            # Deliberate node-decided conflicts: without these the tie-break
+            # path is almost never reached (measured: 13 of 2500 cases) and the
+            # harness would report "0 mismatches" without having tested it.
+            if rng.random() < TIE_PROBABILITY:
+                ops.extend(tie_pair(rng))
     return ops
 
 
