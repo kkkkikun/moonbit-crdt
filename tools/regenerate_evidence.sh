@@ -32,7 +32,7 @@ FP="$(python3 tools/provenance.py --quiet)"
 # 期望测试数：与 README §4.1 的声明必须一致（16 unit + 10 property + 10 regression）。
 # `moon test` 在**一个测试都没找到**时同样退出 0（例如 moon.pkg 缺失），所以
 # 「退出码为 0」不能当作「测试通过」的证据 —— 这里显式断言测试数。
-EXPECTED_TESTS="${EXPECTED_TESTS:-36}"
+EXPECTED_TESTS="${EXPECTED_TESTS:-37}"
 
 if ! command -v moon >/dev/null 2>&1; then
   echo "error: 'moon' not found in PATH." >&2

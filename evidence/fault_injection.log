@@ -1,9 +1,9 @@
 # fault injection
-# code fingerprint: aa295fb65c1e0f13f421315501716d327eef97278625aa6275236a3233a00174
+# code fingerprint: f1428802f66d5f671e3a17691cf3fb3888f7b8d04344521fcc194b6d02e62ac9
 # injects two known defects into the MoonBit side and requires the
 # differential harness to catch both (and shrink them to a minimal case).
 $ python3 tools/fault_injection.py --project . --work /tmp/c05_fault --cases 800 --seed 20261124
-# code fingerprint (pristine source): aa295fb65c1e0f13f421315501716d327eef97278625aa6275236a3233a00174
+# code fingerprint (pristine source): f1428802f66d5f671e3a17691cf3fb3888f7b8d04344521fcc194b6d02e62ac9
 [DETECTED] S1-orset-resurrection
     exit code : 1
     summary   : [summary] 800 cases compared, 299 mismatch(es)

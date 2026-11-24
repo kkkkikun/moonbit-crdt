@@ -67,8 +67,8 @@ jobs:
           out=$(moon test 2>&1)
           echo "$out"
           total=$(printf '%s' "$out" | grep -oE 'Total tests: [0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
-          if [ "${total:-0}" -ne 36 ]; then
-            echo "::error::moon test discovered ${total:-0} tests, expected 36 (see README §4.1)"
+          if [ "${total:-0}" -ne 37 ]; then
+            echo "::error::moon test discovered ${total:-0} tests, expected 37 (see README §4.1)"
             exit 1
           fi
 

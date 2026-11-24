@@ -1,11 +1,11 @@
 # moonbit-crdt — environment of the recorded run
 
-date(UTC)   : 2026-11-24 14:17:47
+date(UTC)   : 2026-11-24 14:55:27
 moon        : moon 0.1.20261119 (738607b 2026-11-19) ~/.moon/bin/moon
 python      : Python 3.12.3
 uname       : Linux 6.8.0-147-generic x86_64
 cpu         : 32 cores
 commit      : (not a git checkout)
 module      : name="kkkkikun/moonbit-crdt"
-code-fp     : aa295fb65c1e0f13f421315501716d327eef97278625aa6275236a3233a00174
-tests       : 36 (asserted against the README)
+code-fp     : f1428802f66d5f671e3a17691cf3fb3888f7b8d04344521fcc194b6d02e62ac9
+tests       : 37 (asserted against the README)

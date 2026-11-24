@@ -55,9 +55,13 @@ GLOBS = (
     # must never be excluded from a tree copy.
     "moon.pkg",
     "cmd/main/moon.pkg",
+    "cmd/main/main.mbt",
     "cmd/replay/moon.pkg",
     "cmd/replay/*.mbt",
     "tools/*.py",
+    # The script that *writes* the evidence must be inside the fingerprint too:
+    # if it changes, the logs it produces are not the same logs.
+    "tools/regenerate_evidence.sh",
 )
 
 # Directories that must never contribute (build output, caches, vendored data).

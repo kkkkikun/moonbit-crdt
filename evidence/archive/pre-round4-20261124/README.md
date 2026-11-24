@@ -15,6 +15,7 @@ the current tree.
 | `environment.txt` | the toolchain of the older run | superseded |
 | `coverage_report.log` | the older coverage report | the report was rewritten to share one traffic source with the fuzz harness, to implement the `resurrectable` definition literally, and to add the counter-arbitration and negative/large-value reachability metrics |
 | `fault_injection.log` | the older fault-injection run | superseded by the run that catches the deliberately injected S1 defect at 299/800 cases (was 1/800) |
+| `fuzz_diff.long.log` | a long-run differential log from **before** the fixes | it has **no code fingerprint** — it predates the fingerprint mechanism — and the script never regenerates it. It is kept here as history, and it is **not** evidence about the current tree |
 
 ## Why the logs were replaced at all
 

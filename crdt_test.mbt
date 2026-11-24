@@ -453,6 +453,53 @@ test "regression: a merge leaves the source replica untouched" {
 }
 
 ///|
+/// REGRESSION (fifth review): the test above merges two replicas that
+/// **already exist**, which does not catch the defect the fourth review
+/// actually found.  M8 was `replicas.set(source, s)` added to the merge
+/// branch — "publish the source as well".  With an existing source that
+/// line is a no-op (it stores the source's own value back), so the state
+/// and the canonical form are unchanged and **the suite stays green while
+/// the defect is present**.
+///
+/// The observable consequence of M8 is that merging a replica that **never
+/// existed** *creates* it: the world publishes a replica that was never
+/// there, and the canonical form grows a line.  A merge must publish only
+/// its target.
+test "regression: a merge does not publish a replica that never existed" {
+  let mut w = @moonbit-crdt.GCounterWorld::new()
+  w = w.apply(["inc", "A", "a"])
+  let before = w.canonical()
+  // `ghost` was never created.  Merging it must not bring it into being.
+  w = w.apply(["merge", "A", "ghost"])
+  let after = w.canonical()
+  assert_eq(after, before)
+  assert_false(after.contains("ghost"))
+
+  // The same for the other three world types: a merge publishes the target
+  // only, never a replica that was not there.
+  let mut p = @moonbit-crdt.PNCounterWorld::new()
+  p = p.apply(["pinc", "A", "a"])
+  let p_before = p.canonical()
+  p = p.apply(["merge", "A", "ghost"])
+  assert_eq(p.canonical(), p_before)
+  assert_false(p.canonical().contains("ghost"))
+
+  let mut o = @moonbit-crdt.ORSetWorld::new()
+  o = o.apply(["add", "A", "a"])
+  let o_before = o.canonical()
+  o = o.apply(["merge", "A", "ghost"])
+  assert_eq(o.canonical(), o_before)
+  assert_false(o.canonical().contains("ghost"))
+
+  let mut l = @moonbit-crdt.LWWWorld::new()
+  l = l.apply(["set", "A", "k", "v", "a", "b"])
+  let l_before = l.canonical()
+  l = l.apply(["merge", "A", "ghost"])
+  assert_eq(l.canonical(), l_before)
+  assert_false(l.canonical().contains("ghost"))
+}
+
+///|
 /// REGRESSION (fourth review): the operation grammar must be able to express
 /// negative numbers and numbers above 26 — the old letter-only alphabet
 /// (a..z = 1..26) could not, which left two whole classes of defects

@@ -57,7 +57,7 @@ export PATH="$HOME/.moon/bin:$PATH"
 # 2. run the demo
 moon run cmd/main
 
-# 3. run the test suite (36 tests: 16 unit + 10 property + 10 regression)
+# 3. run the test suite (37 tests: 16 unit + 10 property + 11 regression)
 moon test
 
 # 4. run the benchmarks
@@ -217,7 +217,7 @@ Total tests: 33, passed: 33, failed: 0.
 ```
 
 (That run predates the three regression tests added by the fourth review —
-**33 was the count at that time**; the current suite has **36**, and the number
+**33 was the count at that time**; the current suite has **37**, and the number
 in `evidence/moon_test.log` is the one that describes the current tree.)
 
 The last two lines matter more than the first one: the coverage report and the
@@ -233,8 +233,8 @@ not match. The same script is what CI runs.
 
 ### 4.1 Unit tests — `crdt_test.mbt`
 
-Concrete semantics of every operation, pinned down one by one — **36 tests in
-total** (16 unit, 10 property, 10 regression).
+Concrete semantics of every operation, pinned down one by one — **37 tests in
+total** (16 unit, 10 property, 11 regression).
 
 ### 4.2 Property tests — `crdt_test.mbt` (QuickCheck)
 
@@ -443,6 +443,25 @@ The fourth review added three more, each pinning a gap it found:
 | `regression: a merge leaves the source replica untouched` | a merge writes into the target only; it must not publish the source or grow it |
 | `regression: the operation grammar decodes negative and large values` | the extended value table (`!`, `@`, `A`…`Z`, `[`, `]`) — without it the harness cannot reach the negative and 32-bit-boundary paths |
 
+The fifth review added one more, and it is worth spelling out **why** the
+previous one was not enough:
+
+| Test | What it pins |
+|---|---|
+| `regression: a merge does not publish a replica that never existed` | merging a replica that was **never created** must not bring it into existence |
+
+The test above it (`… leaves the source replica untouched`) merges two
+replicas that **already exist**, so it cannot see the defect the fourth
+review's mutation actually was. That mutation added `replicas.set(source, s)`
+to the merge branch — "publish the source as well". With an existing source
+that line stores the source's own value back, i.e. it changes nothing, and
+the suite stayed **green with the defect present**. The observable
+consequence is only visible when the source **does not exist**: the world
+then publishes a replica that was never there, and the canonical form grows
+a line. The new test merges a replica named `ghost` that was never created
+and asserts the canonical form is unchanged. Injecting the mutation again
+makes that test fail — that is the point of adding it.
+
 ### 4.7 How a log is bound to the code that produced it
 
 A log that only records *numbers* cannot prove *which* code produced them.
@@ -456,11 +475,14 @@ Two mechanisms close that gap.
 **A code fingerprint.** `tools/provenance.py` hashes every source file that
 can influence a recorded run — the MoonBit sources, `moon.pkg`, the Python
 reference, the harness and the test suite — and folds the hashes into one
-digest. Every log in `evidence/` carries it in its header, and
-`evidence/environment.txt` carries it as `code-fp`:
+digest. Every log **written by `tools/regenerate_evidence.sh`** carries it in its
+header, and `evidence/environment.txt` carries it as `code-fp`. (The archived
+logs under `evidence/archive/` predate the mechanism and carry no fingerprint —
+they are history, not evidence about the current tree; each archive directory
+says so in its own README.)
 
 ```
-# code fingerprint: aa295fb65c1e0f13f421315501716d327eef97278625aa6275236a3233a00174
+# code fingerprint: f1428802f66d5f671e3a17691cf3fb3888f7b8d04344521fcc194b6d02e62ac9
 ```
 
 Two runs on the same tree produce the same digest, and any change to any
@@ -479,7 +501,7 @@ ran. `tools/regenerate_evidence.sh` parses the output and fails the run unless
 the count is exactly what this README declares:
 
 ```
-    [assert] moon test: 36 tests, 36 passed, 0 failed (README agrees)
+    [assert] moon test: 37 tests, 37 passed, 0 failed (README agrees)
 ```
 
 It also fails if the README itself mentions a different count, so the document
@@ -499,15 +521,21 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **57.59 µs ± 2.11 µs** |
-| `orset merge` (1000 elements) | **140.96 µs ± 8.15 µs** |
-| `orset add` (1000 sequential adds) | **5.98 ms ± 625.14 µs** |
-| `lwwregister merge` (1000 keys) | **75.84 µs ± 2.86 µs** |
+| `gcounter merge` (1000 entries) | **58.95 µs ± 2.61 µs** |
+| `orset merge` (1000 elements) | **140.66 µs ± 10.77 µs** |
+| `orset add` (1000 sequential adds) | **6.39 ms ± 770.25 µs** |
+| `lwwregister merge` (1000 keys) | **76.96 µs ± 2.80 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the
 merge O(1) and the benchmark meaningless. The measured values in this table are copied
 verbatim from `evidence/bench.log`; regenerate them with `bash tools/regenerate_evidence.sh`.
+
+> **Read them as one measurement, not as constants.** The machine is shared, and
+> the absolute numbers move with its load — a re-run on a busy machine can come
+> out more than twice as slow. The number that matters for a comparison is the
+> one next to it in the *same* log: `evidence/bench.log` carries the run's code
+> fingerprint, so a log can always be traced to the tree that produced it.
 
 
 The OR-Set is the most expensive type to merge, and that is inherent: merging
