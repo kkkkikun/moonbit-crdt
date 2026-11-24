@@ -1,1 +1,3 @@
-Total tests: 27, passed: 27, failed: 0.
+# moon test
+$ moon test
+Total tests: 33, passed: 33, failed: 0.

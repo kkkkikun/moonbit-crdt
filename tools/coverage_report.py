@@ -109,12 +109,29 @@ def main() -> int:
     print(f"[orset] durable removals       : {orset_removals} removals observed")
     print(f"[orset] resurrectable removals : {orset_resurrectable}")
     print()
+
+    # A coverage report that only prints a warning is a report nobody reads.
+    # If the generated traffic never reaches the branch it claims to test,
+    # the command has to fail — otherwise "0 mismatches" can be green for
+    # lack of coverage instead of because the implementation is correct.
+    gaps = []
     if lww_ties == 0:
-        print("WARNING: the LWW traffic never reaches a node-decided conflict —")
-        print("         the tie-break is NOT covered by the differential harness.")
+        gaps.append(
+            "the LWW traffic never reaches a node-decided conflict — "
+            "the tie-break is NOT covered by the differential harness")
     if orset_removals == 0 or orset_resurrectable == 0:
-        print("WARNING: the OR-Set traffic never reaches a resurrectable removal —")
-        print("         removal durability is NOT covered by the differential harness.")
+        gaps.append(
+            "the OR-Set traffic never reaches a resurrectable removal — "
+            "removal durability is NOT covered by the differential harness")
+    if gaps:
+        print("FAIL: coverage gap")
+        for gap in gaps:
+            print(f"  - {gap}")
+        print()
+        print("A '0 mismatches' result under this coverage proves nothing.")
+        return 1
+
+    print("[ok] the generated traffic reaches both branches the harness claims to test")
     return 0
 
 
