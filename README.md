@@ -204,6 +204,23 @@ All of them are wired into CI: `.github/workflows/ci.yml` runs `moon check`,
 fault injection and the demo on every push and pull request — with smaller
 case counts, because CI is a smoke test rather than the measurement run.
 
+The first run of this workflow on the branch that introduced it
+([run 45397878777](https://github.com/kkkkikun/moonbit-crdt/actions/runs/45397878777))
+went green in 28 s and reported, in that order:
+
+```
+Total tests: 33, passed: 33, failed: 0.
+[summary] 1200 cases compared, 0 mismatch(es)
+[lww]   node-decided conflicts : 236 / 300 cases
+[ok] the generated traffic reaches both branches the harness claims to test
+[verdict] 2/2 injected faults detected by the differential harness
+```
+
+The last two lines matter more than the first one: the coverage report and the
+fault injection are the two steps that can turn a green run red — the first
+when the generated traffic stops reaching the branch it claims to test, the
+second when the harness stops catching defects it is supposed to catch.
+
 ### 4.1 Unit tests — `crdt_test.mbt`
 
 Concrete semantics of every operation, pinned down one by one — **33 tests in
