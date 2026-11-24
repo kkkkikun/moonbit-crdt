@@ -1,0 +1,6 @@
+# seed=42 cases=seed42 max_ops=25
+[ok] gcounter: 600 cases — MoonBit and the reference agree
+[ok] pncounter: 600 cases — MoonBit and the reference agree
+[ok] orset: 600 cases — MoonBit and the reference agree
+[ok] lww: 600 cases — MoonBit and the reference agree
+[summary] 2400 cases compared, 0 mismatch(es)

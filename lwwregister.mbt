@@ -16,14 +16,22 @@
 ///   unique), the merge is deterministic — two replicas always pick the same
 ///   winner, and no value can be "lost" by a tie.
 ///
-/// ## Why a logical counter is needed
+/// ## About the timestamp format
 ///
-/// Wall clocks alone are not sufficient: two writes can land in the same
-/// millisecond, and a replica with a *skewed* clock can produce a wall value
-/// smaller than one it has already published.  The hybrid logical clock
-/// pattern (`wall = max(local_wall, last_seen_wall)` and a per-millisecond
-/// counter) keeps the timestamp monotonically increasing per replica while
-/// still tracking physical time closely.
+/// Each key maps to `(wall, counter, node, value)`.  The pair `(wall,
+/// counter)` is the **shape** of a hybrid logical clock timestamp — a
+/// millisecond wall clock plus a per-millisecond counter — but **this
+/// library contains no clock**: `set()` takes `wall` and `counter` as
+/// arguments, and producing them is the caller's job.
+///
+/// The caller is responsible for keeping the timestamps it publishes
+/// monotonically increasing per replica.  A skewed clock that publishes a
+/// `wall` value smaller than one it has already used can make a later write
+/// lose against an earlier one — the register will converge, but it will
+/// converge to the *older* value.
+///
+/// `wall` and `counter` are `Int64` rather than `Int`, because a millisecond
+/// timestamp does not fit in MoonBit's 32-bit `Int`.
 ///
 /// ## Algebraic guarantees
 ///

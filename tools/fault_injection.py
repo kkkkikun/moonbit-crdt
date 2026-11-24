@@ -102,7 +102,7 @@ def main() -> int:
         target = os.path.join(work, name)
         if os.path.exists(target):
             shutil.rmtree(target)
-        shutil.copytree(source, target)
+        shutil.copytree(source, target, ignore=shutil.ignore_patterns(".git", "__pycache__"))
         # Build artifacts of the source copy must not leak into the mutant.
         for junk in ("_build", "target", ".moon"):
             junk_path = os.path.join(target, junk)

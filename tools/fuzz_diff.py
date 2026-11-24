@@ -19,8 +19,10 @@ Why it matters
 Property tests inside one implementation cannot catch a mistake that is
 *shared* by the property and the implementation.  A differential test against
 an implementation written from the specification can.  The harness is also the
-project's regression corpus generator: every case it produces can be frozen
-into `tests/regression/`.
+project's regression-corpus generator: a failing case it prints can be frozen
+into a `regression:` test in `crdt_test.mbt` (there is **no**
+`tests/regression/` directory in this project — the regression cases live in
+that file, next to the unit and property tests).
 
 Usage
 -----

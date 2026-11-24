@@ -1,0 +1,100 @@
+name: CI
+
+# The whole point of this repository is that the behaviour is *checked*, not
+# asserted.  So CI does not only run the test suite — it also runs the
+# cross-implementation differential harness, the coverage report that says
+# which branches that harness actually reaches, and the fault injection that
+# proves the harness would have failed if the implementation were wrong.
+#
+# A green run therefore means three different things:
+#   1. `moon check` / `moon test`  — the implementation matches the spec we
+#      wrote down.
+#   2. `fuzz_diff.py`               — it matches a *second* implementation of
+#      the same semantics.  Note the honest scope: for **OR-Set** the two
+#      sides use *different algorithms* (MoonBit filters tombstones, the
+#      Python reference applies the ORSWOT / 2P-Set causal-context rule), so
+#      the comparison has semantic proof power there.  For GCounter,
+#      PNCounter and LWWRegister the two sides share the same merge rule and
+#      differ only in language and data structure — the comparison catches
+#      language-level defects (integer width, collation, arity guards, map
+#      iteration order), **not** a mistake both sides make the same way.
+#   3. `fault_injection.py`         — and the comparison would actually have
+#      caught a defect, rather than being green for lack of coverage.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: check / test / bench / differential
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MoonBit toolchain
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain version
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          moon version --all
+
+      - name: moon check
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          moon check
+
+      - name: moon test
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          moon test
+
+      - name: moon bench
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          moon bench
+
+      # The differential harness.  The seed is fixed so a failure is
+      # reproducible; the case counts are smaller than the ones quoted in the
+      # README because CI is a smoke test, not the measurement run.
+      - name: Differential harness (MoonBit vs. the Python reference)
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          python3 tools/fuzz_diff.py --cases 300 --seed 20261124 --max-ops 12 \
+            --moon-cmd "moon run cmd/replay --"
+
+      # How much of the interesting behaviour does that harness reach?
+      # A run that reports zero node-decided conflicts means the tie-break
+      # was *not* tested — the command fails so that cannot pass silently.
+      - name: Differential coverage report
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          python3 tools/coverage_report.py --cases 300 --seed 20261124 --max-ops 12
+
+      # The proof that the harness can fail: inject two known defects into
+      # the MoonBit side (in a scratch copy, never in the checkout) and
+      # require the harness to catch both.
+      - name: Fault injection (the harness must catch known defects)
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          python3 tools/fault_injection.py --project . --work "${RUNNER_TEMP}/c05_fault" \
+            --cases 300 --seed 20261124
+
+      - name: The demo still runs
+        run: |
+          export PATH="$HOME/.moon/bin:$PATH"
+          moon run cmd/main
