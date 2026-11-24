@@ -39,6 +39,10 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from provenance import fingerprint as code_fingerprint  # noqa: E402
+
 # --------------------------------------------------------------------------
 # The injected faults: (name, file, original snippet, faulty snippet, family)
 # --------------------------------------------------------------------------
@@ -93,6 +97,11 @@ def main() -> int:
     source = os.path.abspath(args.project)
     work = os.path.abspath(args.work)
     os.makedirs(work, exist_ok=True)
+
+    # Bind this run to the tree state the mutants are derived from.  Each
+    # mutant's own fingerprint is printed by the harness inside the copy.
+    _digest, _ = code_fingerprint(source)
+    print(f"# code fingerprint (pristine source): {_digest}")
 
     results = []
     all_detected = True

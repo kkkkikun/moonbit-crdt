@@ -404,3 +404,72 @@ test "regression: canonical order is plain lexicographic, not numeric-aware" {
   assert_eq(sorted[1], "C#10")
   assert_eq(sorted[2], "C#2")
 }
+
+///|
+/// REGRESSION (fourth review): the total order on an LWW entry is
+/// `(wall, counter, node)` — three layers, not two.  The node-id layer had a
+/// test; the **counter** layer did not, so a defect in that comparison would
+/// have gone unnoticed by the unit suite.
+test "regression: lww counter arbitrates before the node id" {
+  let a = @moonbit-crdt.LWWRegister::new().set("A", "k", "a", 5L, 1L)
+  let b = @moonbit-crdt.LWWRegister::new().set("B", "k", "b", 5L, 2L)
+  // Same wall, different counter: the counter decides, before the node id is
+  // even looked at.  B's counter is larger, so B wins — in both directions.
+  assert_eq(@moonbit-crdt.LWWRegister::merge(a, b).get("k"), Some("b"))
+  assert_eq(@moonbit-crdt.LWWRegister::merge(b, a).get("k"), Some("b"))
+  // And with the counter reversed the other side wins — otherwise "the
+  // counter arbitrates" would be indistinguishable from "the first argument
+  // wins".
+  let c = @moonbit-crdt.LWWRegister::new().set("A", "k", "c", 5L, 9L)
+  assert_eq(@moonbit-crdt.LWWRegister::merge(a, c).get("k"), Some("c"))
+  assert_eq(@moonbit-crdt.LWWRegister::merge(c, a).get("k"), Some("c"))
+}
+
+///|
+/// REGRESSION (fourth review): a merge writes into the **target** only.  The
+/// source replica must not grow to contain the target's data, and the merge
+/// must not "publish" the source as a replica it never had.
+test "regression: a merge leaves the source replica untouched" {
+  let a = @moonbit-crdt.GCounter::new().inc("A", 5L)
+  let b = @moonbit-crdt.GCounter::new().inc("B", 7L)
+  let merged = @moonbit-crdt.GCounter::merge(a, b)
+  // The source is untouched — merging is a pure function.
+  assert_eq(b.get("A"), 0L)
+  assert_eq(b.value(), 7L)
+  assert_eq(merged.get("A"), 5L)
+  assert_eq(merged.get("B"), 7L)
+
+  let mut w = @moonbit-crdt.GCounterWorld::new()
+  w = w.apply(["inc", "A", "a"])
+  w = w.apply(["inc", "B", "b"])
+  let before = w.canonical()
+  w = w.apply(["merge", "A", "B"])
+  let after = w.canonical()
+  // B's own entry must be byte-identical before and after a merge that
+  // targets A.  (The increment token `b` decodes to 2, and the state is
+  // escaped: the `=` inside the value becomes `%3D`.)
+  assert_true(before.contains("B=B%3D2"))
+  assert_true(after.contains("B=B%3D2"))
+}
+
+///|
+/// REGRESSION (fourth review): the operation grammar must be able to express
+/// negative numbers and numbers above 26 — the old letter-only alphabet
+/// (a..z = 1..26) could not, which left two whole classes of defects
+/// invisible to the differential harness: an implementation that accepted
+/// negative increments, and one that truncated a counter to 32 bits.
+/// `]` is 2**31 on purpose: one past the signed 32-bit boundary.
+test "regression: the operation grammar decodes negative and large values" {
+  assert_eq(@moonbit-crdt.letter_to_int("0"), 0L)
+  assert_eq(@moonbit-crdt.letter_to_int("a"), 1L)
+  assert_eq(@moonbit-crdt.letter_to_int("z"), 26L)
+  assert_eq(@moonbit-crdt.letter_to_int("A"), 27L)
+  assert_eq(@moonbit-crdt.letter_to_int("Z"), 52L)
+  assert_eq(@moonbit-crdt.letter_to_int("!"), -1L)
+  assert_eq(@moonbit-crdt.letter_to_int("@"), -2L)
+  assert_eq(@moonbit-crdt.letter_to_int("["), 2147483647L)
+  assert_eq(@moonbit-crdt.letter_to_int("]"), 2147483648L)
+  // An unknown token decodes to 0 rather than failing — the replay engine has
+  // to stay total, or one bad case would abort a whole batch.
+  assert_eq(@moonbit-crdt.letter_to_int("?"), 0L)
+}

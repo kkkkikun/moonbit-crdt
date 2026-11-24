@@ -44,14 +44,80 @@ import string
 
 LETTERS = string.ascii_lowercase
 
+# The value table used by the operation grammar.  It must stay in step with
+# ``VALUE_TOKENS`` in ``world.mbt`` — the differential harness compares the two
+# implementations against each other, so a table mismatch would show up as
+# nonsense mismatches rather than as the bug we are looking for.
+#
+# The letters a..z (1..26) are the historical encoding.  The extra entries
+# exist because that alphabet alone cannot express a negative number or a
+# number larger than 26, which leaves whole classes of defects invisible to
+# the harness (accepted negative increments, counters truncated to 32 bits).
+# "]" is 2**31 on purpose: one past the signed 32-bit boundary.
+VALUE_TOKENS = {
+    "0": 0,
+    "a": 1,
+    "b": 2,
+    "c": 3,
+    "d": 4,
+    "e": 5,
+    "f": 6,
+    "g": 7,
+    "h": 8,
+    "i": 9,
+    "j": 10,
+    "k": 11,
+    "l": 12,
+    "m": 13,
+    "n": 14,
+    "o": 15,
+    "p": 16,
+    "q": 17,
+    "r": 18,
+    "s": 19,
+    "t": 20,
+    "u": 21,
+    "v": 22,
+    "w": 23,
+    "x": 24,
+    "y": 25,
+    "z": 26,
+    "A": 27,
+    "B": 28,
+    "C": 29,
+    "D": 30,
+    "E": 31,
+    "F": 32,
+    "G": 33,
+    "H": 34,
+    "I": 35,
+    "J": 36,
+    "K": 37,
+    "L": 38,
+    "M": 39,
+    "N": 40,
+    "O": 41,
+    "P": 42,
+    "Q": 43,
+    "R": 44,
+    "S": 45,
+    "T": 46,
+    "U": 47,
+    "V": 48,
+    "W": 49,
+    "X": 50,
+    "Y": 51,
+    "Z": 52,
+    "!": -1,
+    "@": -2,
+    "[": 2147483647,
+    "]": 2147483648,
+}
+
 
 def letter_to_int(token: str) -> int:
-    """Decode the letter encoding used by the operation grammar."""
-    if token == "0":
-        return 0
-    if len(token) == 1 and token in LETTERS:
-        return LETTERS.index(token) + 1
-    return 0
+    """Decode the value encoding used by the operation grammar."""
+    return VALUE_TOKENS.get(token, 0)
 
 
 def sort_key(text: str) -> bytes:

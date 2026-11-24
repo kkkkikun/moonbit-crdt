@@ -1,11 +1,18 @@
 # differential coverage report
+# code fingerprint: aa295fb65c1e0f13f421315501716d327eef97278625aa6275236a3233a00174
 # how much of the interesting behaviour the generated traffic actually reaches
 $ python3 tools/coverage_report.py --cases 2500 --seed 20261124 --max-ops 12
+# code fingerprint: aa295fb65c1e0f13f421315501716d327eef97278625aa6275236a3233a00174
 == differential coverage report ==
-seed=20261124 cases/family=2500 max_ops=12
+seed=20261124 cases/family=2500 max-ops=12
+(the stream below is the one the harness compares — both call fuzz_diff.generate_cases())
 
-[lww]   node-decided conflicts : 1959 / 2500 cases
-[orset] durable removals       : 551 removals observed
-[orset] resurrectable removals : 343
+[lww]    node-decided conflicts   : 1956 / 2500 cases
+[lww]    counter-arbitrated cases  : 1983 / 2500 cases
+[orset]  durable removals         : 5275
+[orset]  resurrectable removals   : 4360
+[orset]  removals of unknown elem : 4448
+[values] cases with a negative    : 366 / 2500 cases
+[values] cases with a value > 26  : 2124 / 2500 cases
 
-[ok] the generated traffic reaches both branches the harness claims to test
+[ok] the generated traffic reaches every branch the harness claims to test

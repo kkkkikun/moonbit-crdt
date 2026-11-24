@@ -50,7 +50,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from reference_crdt import LETTERS, run_case  # noqa: E402
+from reference_crdt import LETTERS, VALUE_TOKENS, run_case  # noqa: E402
+from provenance import fingerprint as code_fingerprint  # noqa: E402
 
 # The replica ids deliberately include **multi-character** ones: the LWW
 # tie-break compares node ids as plain code-unit strings, and a single-letter
@@ -65,6 +66,13 @@ REPLICAS = ["A", "B", "C", "node-2", "node-10"]
 # that accidentally falls back to the built-in comparison — so the generator
 # produces such conflicts on purpose instead of hoping for them.
 NUMERIC_REPLICAS = ["node-2", "node-10"]
+
+# Every value token the operation grammar understands.  The letters a..z are the
+# historical encoding; the rest (see ``VALUE_TOKENS``) make negative numbers
+# and numbers above 26 reachable, so the harness can actually exercise the
+# negative-delta and 32-bit-truncation paths instead of only ever seeing
+# small positive counters.
+VALUE_TOKENS_LIST = list(VALUE_TOKENS.keys())
 ELEMENTS = ["x", "y", "z"]
 KEYS = ["k1", "k2"]
 VALUES = ["v1", "v2", "v3"]
@@ -73,6 +81,10 @@ VALUES = ["v1", "v2", "v3"]
 # conflict: two replicas write the same key with the same (wall, counter),
 # so the winner can only be decided by comparing the node ids.
 TIE_PROBABILITY = 0.4
+
+# Probability that a generated OR-Set stream contains a deliberate
+# "remove, then merge with a stale holder" sequence.  See removal_pair().
+REMOVAL_PROBABILITY = 0.25
 
 
 def tie_pair(rng: random.Random) -> list:
@@ -85,11 +97,31 @@ def tie_pair(rng: random.Random) -> list:
     """
     left, right = rng.sample(NUMERIC_REPLICAS, 2)
     key = rng.choice(KEYS)
-    wall = rng.choice(LETTERS)
-    counter = rng.choice(LETTERS)
+    wall = rng.choice(VALUE_TOKENS_LIST)
+    counter = rng.choice(VALUE_TOKENS_LIST)
     return [
         ["set", left, key, rng.choice(VALUES), wall, counter],
         ["set", right, key, rng.choice(VALUES), wall, counter],
+    ]
+
+
+def removal_pair(rng: random.Random) -> list:
+    """A deliberate "remove, then merge with a stale holder" sequence.
+
+    This is the situation the removal-durability property is about: a replica
+    removes an element it has observed, and a replica that still holds the
+    removed dot merges it back.  Without this the generated traffic reaches
+    that situation only a handful of times in 2500 cases (measured: 11), so
+    the harness would be reporting "0 mismatches" without having tested the
+    property at all.
+    """
+    a, b = rng.sample(REPLICAS, 2)
+    elem = rng.choice(ELEMENTS)
+    return [
+        ["add", a, elem],
+        ["merge", b, a],      # b observes a's dot
+        ["rem", a, elem],     # a removes what it observed
+        ["merge", a, b],      # b still holds the dot -> a would resurrect it
     ]
 
 
@@ -107,6 +139,29 @@ def node_decided_conflicts(ops: list) -> int:
     return sum(1 for nodes in stamps.values() if len(nodes) > 1)
 
 
+FAMILY_ORDER = ["gcounter", "pncounter", "orset", "lww"]
+
+
+def generate_cases(seed: int, cases: int, max_ops: int,
+                   families: list | None = None) -> dict:
+    """Generate **the exact case stream the harness compares**.
+
+    The coverage report has to describe the traffic that is really compared —
+    if it generated its own separate stream, its numbers would be about a
+    different set of cases than the ones the "0 mismatches" claim rests on.
+    So both the harness and the coverage report call this function, with the
+    same seed, the same case count and the same family order (the order
+    matters: the families share one random stream).
+    """
+    families = families or FAMILY_ORDER
+    rng = random.Random(seed)
+    out: dict = {}
+    for family in families:
+        out[family] = [random_ops(rng, family, rng.randint(1, max_ops))
+                       for _ in range(cases)]
+    return out
+
+
 def random_ops(rng: random.Random, family: str, length: int) -> list:
     """Build a random operation stream for the given family."""
     ops = []
@@ -115,15 +170,15 @@ def random_ops(rng: random.Random, family: str, length: int) -> list:
             if rng.random() < 0.3:
                 ops.append(["merge", rng.choice(REPLICAS), rng.choice(REPLICAS)])
             else:
-                ops.append(["inc", rng.choice(REPLICAS), rng.choice(LETTERS)])
+                ops.append(["inc", rng.choice(REPLICAS), rng.choice(VALUE_TOKENS_LIST)])
         elif family == "pncounter":
             roll = rng.random()
             if roll < 0.25:
                 ops.append(["merge", rng.choice(REPLICAS), rng.choice(REPLICAS)])
             elif roll < 0.6:
-                ops.append(["pinc", rng.choice(REPLICAS), rng.choice(LETTERS)])
+                ops.append(["pinc", rng.choice(REPLICAS), rng.choice(VALUE_TOKENS_LIST)])
             else:
-                ops.append(["ninc", rng.choice(REPLICAS), rng.choice(LETTERS)])
+                ops.append(["ninc", rng.choice(REPLICAS), rng.choice(VALUE_TOKENS_LIST)])
         elif family == "orset":
             roll = rng.random()
             if roll < 0.25:
@@ -132,6 +187,10 @@ def random_ops(rng: random.Random, family: str, length: int) -> list:
                 ops.append(["add", rng.choice(REPLICAS), rng.choice(ELEMENTS)])
             else:
                 ops.append(["rem", rng.choice(REPLICAS), rng.choice(ELEMENTS)])
+            # Deliberate removal-durability scenarios, for the same reason the
+            # LWW family produces node-decided conflicts on purpose.
+            if rng.random() < REMOVAL_PROBABILITY:
+                ops.extend(removal_pair(rng))
         elif family == "lww":
             if rng.random() < 0.25:
                 ops.append(["merge", rng.choice(REPLICAS), rng.choice(REPLICAS)])
@@ -141,8 +200,8 @@ def random_ops(rng: random.Random, family: str, length: int) -> list:
                     rng.choice(REPLICAS),
                     rng.choice(KEYS),
                     rng.choice(VALUES),
-                    rng.choice(LETTERS),
-                    rng.choice(LETTERS),
+                    rng.choice(VALUE_TOKENS_LIST),
+                    rng.choice(VALUE_TOKENS_LIST),
                 ])
             # Deliberate node-decided conflicts: without these the tie-break
             # path is almost never reached (measured: 13 of 2500 cases) and the
@@ -212,16 +271,20 @@ def main() -> int:
     ap.add_argument("--max-ops", type=int, default=12)
     args = ap.parse_args()
 
+    # Bind this run to the tree state that produced it (see tools/provenance.py).
+    _digest, _ = code_fingerprint(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    print(f"# code fingerprint: {_digest}")
+
     families = [f.strip() for f in args.families.split(",") if f.strip()]
-    rng = random.Random(args.seed)
     failures = 0
     total = 0
+
+    streams = generate_cases(args.seed, args.cases, args.max_ops, families)
 
     for family in families:
         cases = []
         expected = []
-        for i in range(args.cases):
-            ops = random_ops(rng, family, rng.randint(1, args.max_ops))
+        for i, ops in enumerate(streams[family]):
             name = f"{family}-{i}"
             cases.append(encode_case(family, name, ops))
             expected.append(run_case(family, name, ops))

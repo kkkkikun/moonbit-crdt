@@ -58,10 +58,23 @@ jobs:
           export PATH="$HOME/.moon/bin:$PATH"
           moon check
 
-      - name: moon test
+      # `moon test` exits 0 when it discovers **no** test at all, so the count
+      # is asserted explicitly — otherwise a missing `moon.pkg` would turn this
+      # step green while the suite never ran.
+      - name: moon test (the count is asserted)
         run: |
           export PATH="$HOME/.moon/bin:$PATH"
-          moon test
+          out=$(moon test 2>&1)
+          echo "$out"
+          total=$(printf '%s' "$out" | grep -oE 'Total tests: [0-9]+' | tail -1 | grep -oE '[0-9]+' || true)
+          if [ "${total:-0}" -ne 36 ]; then
+            echo "::error::moon test discovered ${total:-0} tests, expected 36 (see README §4.1)"
+            exit 1
+          fi
+
+      - name: Code fingerprint selftest
+        run: |
+          python3 tools/provenance.py --selftest
 
       - name: moon bench
         run: |

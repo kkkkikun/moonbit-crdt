@@ -57,7 +57,7 @@ export PATH="$HOME/.moon/bin:$PATH"
 # 2. run the demo
 moon run cmd/main
 
-# 3. run the test suite (33 tests: 16 unit + 10 property + 7 regression)
+# 3. run the test suite (36 tests: 16 unit + 10 property + 10 regression)
 moon test
 
 # 4. run the benchmarks
@@ -216,15 +216,25 @@ Total tests: 33, passed: 33, failed: 0.
 [verdict] 2/2 injected faults detected by the differential harness
 ```
 
+(That run predates the three regression tests added by the fourth review —
+**33 was the count at that time**; the current suite has **36**, and the number
+in `evidence/moon_test.log` is the one that describes the current tree.)
+
 The last two lines matter more than the first one: the coverage report and the
 fault injection are the two steps that can turn a green run red — the first
 when the generated traffic stops reaching the branch it claims to test, the
 second when the harness stops catching defects it is supposed to catch.
 
+**A green `moon test` is not enough on its own.** `moon test` exits 0 when it
+finds *no* test at all (for example when `moon.pkg` — which declares the test
+dependencies — is missing from the tree), so `tools/regenerate_evidence.sh`
+asserts the **test count** against this README and fails the run if it does
+not match. The same script is what CI runs.
+
 ### 4.1 Unit tests — `crdt_test.mbt`
 
-Concrete semantics of every operation, pinned down one by one — **33 tests in
-total** (16 unit, 10 property, 7 regression).
+Concrete semantics of every operation, pinned down one by one — **36 tests in
+total** (16 unit, 10 property, 10 regression).
 
 ### 4.2 Property tests — `crdt_test.mbt` (QuickCheck)
 
@@ -353,8 +363,13 @@ Two faults are injected — the two most serious defects in the table above
 
 | Injected fault | Result | Minimal reproduction found |
 |---|---|---|
-| `S1` — the tombstone filter is neutered, so a removed element comes back | **DETECTED** (800 cases, 1 mismatch) | `orset\|shrink\|add node-10 z;merge node-2 node-10;rem node-10 z;merge node-2 node-10` |
-| `S2` — the node tie-break falls back to MoonBit's numeric-aware built-in comparison | **DETECTED** (800 cases, 25 mismatches) | `lww\|shrink\|set node-2 k2 v2 e c;set node-10 k2 v3 e c;merge node-2 node-10` |
+| `S1` — the tombstone filter is neutered, so a removed element comes back | **DETECTED** (800 cases, **299** mismatches) | `orset\|shrink\|add node-2 x;merge node-10 node-2;rem node-2 x;merge node-2 node-10` |
+| `S2` — the node tie-break falls back to MoonBit's numeric-aware built-in comparison | **DETECTED** (800 cases, 28 mismatches) | `lww\|shrink\|set node-2 k1 v3 h !;set node-10 k1 v2 h !;merge node-2 node-10` |
+
+Note how much louder `S1` is now: **299 of 800 cases** diverge, where before the
+generator was improved it was 1. That is the point of generating the removal
+scenario deliberately instead of hoping for it — a harness that finds a defect
+once in 800 runs is one typo away from missing it.
 
 ```
 [verdict] 2/2 injected faults detected by the differential harness
@@ -374,14 +389,40 @@ the two situations that decide this project's correctness:
 
 | Branch | Why it matters | Measured (2500 cases/family, seed 20261124) |
 |---|---|---|
-| LWW conflict decided **only by the node id** | the exact case a wrong tie-break breaks (defect 8) | **1959 / 2500** cases |
-| OR-Set removal that is **resurrectable** — a removal followed by a merge with a replica that still holds the removed dots | the exact case a forgotten removal breaks (defect 7) | **551** durable removals observed, of which **343** are resurrectable |
+| LWW conflict decided **only by the node id** | the exact case a wrong tie-break breaks (defect 8) | **1956 / 2500** cases |
+| LWW conflict decided by the **counter** (same wall, different counter) | the middle layer of the `(wall, counter, node)` order — untested until the fourth review | **1983 / 2500** cases |
+| OR-Set removal that is **resurrectable** — a removal followed by a merge with a replica that still holds the removed dots | the exact case a forgotten removal breaks (defect 7) | **5275** durable removals observed, of which **4360** are resurrectable |
+| a **negative** value in the traffic | an implementation that accepted a negative increment would be invisible | **366 / 2500** cases |
+| a value **above 26** in the traffic | an implementation that truncated a counter to 32 bits would be invisible | **2124 / 2500** cases |
 
 The script **exits non-zero** when a branch is never reached, so "0
 mismatches" can never be green for lack of coverage.
 
 This layer is what keeps the volume honest: without it, "18,000 cases" could
 mean "18,000 cases that never exercise the tie-break at all".
+
+Two things about this table are worth stating plainly, because the fourth
+review found both:
+
+* **It measures the traffic the harness actually compares.** The report and
+  the harness call the same `fuzz_diff.generate_cases()` with the same seed,
+  case count and family order. An earlier version of this file generated its
+  *own* stream, so its numbers described a different set of cases than the
+  ones the "0 mismatches" claim rested on.
+* **It implements the definition it claims.** "Resurrectable" means: a durable
+  removal that is *followed* by a merge which brings the element back from a
+  replica that still holds it. The earlier version counted any removal whose
+  element was held by another replica at *some* point in the stream, without
+  requiring the merge to happen after the removal — that over-counted by more
+  than four times (343 against a true count of 11 for the same traffic).
+
+The last two rows of the table exist because the operation grammar used to be
+letters only (`a` = 1 … `z` = 26). That alphabet cannot express a negative
+number or a number above 26, so an implementation that accepted a negative
+increment, or one that truncated a counter to 32 bits, would have passed the
+differential harness unnoticed. The value table now also carries `!` = -1,
+`@` = -2, `A` … `Z` = 27 … 52, `[` = 2^31 - 1 and `]` = 2^31 — the last one
+deliberately one past the signed 32-bit boundary.
 
 (raw log: [`evidence/coverage_report.log`](evidence/coverage_report.log))
 
@@ -394,6 +435,60 @@ lexicographic, not numeric-aware`). A seventh `regression:` test pins a design
 decision rather than a found defect: `regression: counters and timestamps stay
 inside Int64 at the 32-bit boundary`.
 
+The fourth review added three more, each pinning a gap it found:
+
+| Test | What it pins |
+|---|---|
+| `regression: lww counter arbitrates before the node id` | the **counter** layer of the `(wall, counter, node)` order — the node layer had a test, this one did not |
+| `regression: a merge leaves the source replica untouched` | a merge writes into the target only; it must not publish the source or grow it |
+| `regression: the operation grammar decodes negative and large values` | the extended value table (`!`, `@`, `A`…`Z`, `[`, `]`) — without it the harness cannot reach the negative and 32-bit-boundary paths |
+
+### 4.7 How a log is bound to the code that produced it
+
+A log that only records *numbers* cannot prove *which* code produced them.
+This is not hypothetical: after the value table grew and the generator changed,
+the regenerated fuzz logs came out **byte-identical** to the previous ones (the
+logs record counts, not cases), so the log carried no evidence that the new
+code had been exercised at all.
+
+Two mechanisms close that gap.
+
+**A code fingerprint.** `tools/provenance.py` hashes every source file that
+can influence a recorded run — the MoonBit sources, `moon.pkg`, the Python
+reference, the harness and the test suite — and folds the hashes into one
+digest. Every log in `evidence/` carries it in its header, and
+`evidence/environment.txt` carries it as `code-fp`:
+
+```
+# code fingerprint: aa295fb65c1e0f13f421315501716d327eef97278625aa6275236a3233a00174
+```
+
+Two runs on the same tree produce the same digest, and any change to any
+participating file changes it. The file list is enumerated explicitly on
+purpose: a broad glob such as `**/moon.pkg` would also pick up the dependency
+packages that `moon` downloads into `.mooncakes/`, which would make the
+fingerprint change depending on whether the dependencies had been fetched yet.
+`python3 tools/provenance.py --selftest` checks all of that (stability, no
+forbidden directories, nothing outside the allowed set) and exits non-zero if
+it regresses.
+
+**An asserted test count.** `moon test` exits 0 when it finds *no* test at all
+—for example when `moon.pkg`, which declares the test-only dependencies, is
+missing from the tree. So a green exit code is not evidence that the suite
+ran. `tools/regenerate_evidence.sh` parses the output and fails the run unless
+the count is exactly what this README declares:
+
+```
+    [assert] moon test: 36 tests, 36 passed, 0 failed (README agrees)
+```
+
+It also fails if the README itself mentions a different count, so the document
+and the suite cannot drift apart silently. CI asserts the same number.
+
+> `moon.pkg` is **source**, not build output: it declares which imports belong
+> to the `test` section, and it decides whether `moon test` finds the suite.
+> Do not exclude it when copying the tree.
+
 ---
 
 ## 5. Benchmarks
@@ -404,10 +499,10 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **57.41 µs ± 2.76 µs** |
-| `orset merge` (1000 elements) | **141.13 µs ± 8.36 µs** |
-| `orset add` (1000 sequential adds) | **6.38 ms ± 714.79 µs** |
-| `lwwregister merge` (1000 keys) | **74.86 µs ± 2.77 µs** |
+| `gcounter merge` (1000 entries) | **57.59 µs ± 2.11 µs** |
+| `orset merge` (1000 elements) | **140.96 µs ± 8.15 µs** |
+| `orset add` (1000 sequential adds) | **5.98 ms ± 625.14 µs** |
+| `lwwregister merge` (1000 keys) | **75.84 µs ± 2.86 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the
