@@ -1,0 +1,8 @@
+import {
+  "moonbitlang/core/bench",
+  "moonbitlang/core/quickcheck",
+} for "test"
+
+// Root package = the library itself (`moonbit-crdt`).
+// The two executables live under cmd/main and cmd/replay and import this
+// module with `@lib`.

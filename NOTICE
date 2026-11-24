@@ -1,0 +1,17 @@
+moonbit-crdt
+Copyright 2026 the moonbit-crdt authors
+
+This product includes software developed as part of the 2026 MoonBit Hackathon
+(November season, second quarterly round).
+
+Portions of the reference implementation in tools/reference_crdt.py follow the
+standard definitions of G-Counter, PN-Counter, OR-Set (add-wins) and
+LWW-Register as described in:
+
+  N. Preguiça, M. Shapiro et al., "A comprehensive study of Convergent and
+  Commutative Replicated Data Types", INRIA RR-7506, 2011.
+
+  M. Kleppmann, "Designing Data-Intensive Applications", O'Reilly, 2017, ch. 5.
+
+No source code was copied from those publications; the implementations were
+written from the definitions.
