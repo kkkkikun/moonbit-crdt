@@ -10,6 +10,7 @@
 
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![moon](https://img.shields.io/badge/moon-0.1.20261119-informational)](https://www.moonbitlang.com/download/)
+[![author](https://img.shields.io/badge/author-kkkkikun-8250df)](https://github.com/kkkkikun)
 
 ---
 
@@ -285,6 +286,10 @@ moonbit-crdt/
 └── evidence/                    raw logs of the runs quoted above
 ```
 
-## 9. License
+## 9. Author / 贡献者
+
+**[kkkkikun](https://github.com/kkkkikun)** — 本仓库全部代码、测试、差分测试 harness 与文档均由该作者独立完成。
+
+## 10. License
 
 Apache-2.0 — see [LICENSE](LICENSE).
