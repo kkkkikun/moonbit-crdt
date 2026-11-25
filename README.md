@@ -627,10 +627,10 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **119.46 µs ± 6.20 µs** |
-| `orset merge` (1000 elements) | **299.85 µs ± 21.49 µs** |
-| `orset add` (1000 sequential adds) | **15.19 ms ± 1.72 ms** |
-| `lwwregister merge` (1000 keys) | **153.61 µs ± 7.60 µs** |
+| `gcounter merge` (1000 entries) | **110.89 µs ± 19.01 µs** |
+| `orset merge` (1000 elements) | **326.60 µs ± 20.93 µs** |
+| `orset add` (1000 sequential adds) | **14.98 ms ± 1.43 ms** |
+| `lwwregister merge` (1000 keys) | **149.22 µs ± 18.88 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the

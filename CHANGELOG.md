@@ -8,6 +8,43 @@ The project is **not published to the MoonBit registry yet** (see `README.md`
 made at — the commit history, the issues and the pull requests carry the rest
 of the update record.
 
+## Unreleased — the ninth- and tenth-review fixes (2026-11-25)
+
+Fixes for the **n1** finding of the ninth independent review and the **n3**
+finding of the tenth independent review (`qa/independent_review_round9.md` and
+`qa/independent_review_round10.md` in the project workspace). The one **S**
+finding — the public history still contains commits signed with a real name —
+is an outbound action and is tracked outside this file.
+
+### The test-breakdown guard can no longer be switched off by renaming a category (n1, n3)
+
+The guard that cross-checks the README's `16 unit, 10 property, 11 regression`
+breakdown against the declared test count used to **skip silently** when the
+category names were not in its whitelist: the whitelist pattern matched
+nothing, the loop body never ran, and the breakdown's sum was never verified
+at all. Round nine changed it to **fail closed** — a generic
+`N word, N word, N word` detector reports the breakdown as unverified when the
+whitelist does not match.
+
+Round ten found that this fix could still be **bypassed with a decoy**: the
+fail-closed branch only fired when the whitelist matched *nothing*, so renaming
+the real breakdown's categories while planting one legal whitelist triple
+elsewhere kept the branch from running, and the real breakdown's sum went
+completely unchecked.
+
+The gate now judges **every generic triple on its own**: each one must be
+covered by a whitelist match at the same position, or its sum counts as
+unverified. A decoy can no longer hide the real breakdown. Verified on the
+build server: renaming a category, renaming it together with a decoy, and
+renaming it with a wrong sum are all rejected (exit 3); inserting a decoy
+alone, keeping a correct breakdown and the prose "18,000 cases, 0 mismatches"
+are all accepted (exit 0).
+
+The evidence was regenerated on the build server after this change
+(`tools/regenerate_evidence.sh`, exit 0), so the recorded fingerprints and the
+README's benchmark figures match the current tree again. Benchmark figures are
+load-dependent and differ per run — that is stated in `README.md` §4.7.
+
 ## Unreleased — the eighth-review fixes (2026-11-25)
 
 Fixes for the **1 M + 8 m** findings of the eighth independent review

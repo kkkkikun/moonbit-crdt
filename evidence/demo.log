@@ -1,5 +1,5 @@
 # demo
-# code fingerprint: 4881cdc477b58f09c77291df661247cf34e6ee8bc2c9fb61f7d415e0555d3ba8
+# code fingerprint: dcee89c9db3620ef84daabb4536155578eb4bd82ba58fe17a7658df327c12ad6
 $ moon run cmd/main
 === moonbit-crdt ===
 

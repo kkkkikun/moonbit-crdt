@@ -513,21 +513,40 @@ def check_readme_numbers(readme_text: str, root: Path,
     # nothing but a generic "N word, N word, N word" triple exists, the
     # breakdown's category names are outside the whitelist and the sum was
     # never checked — renaming a category must not silently disable the gate.
-    if not matched:
-        generic = list(GENERIC_BREAKDOWN_RE.finditer(prose))
-        if generic:
-            shown = " | ".join(repr(m.group(0)) for m in generic[:3])
-            problems.append(
-                "the README's test breakdown uses category names outside the "
-                f"whitelist ({BREAKDOWN_CATEGORY}): found {shown} — "
-                "the breakdown's sum is therefore NOT verified; either restore the "
-                "documented category names or extend the whitelist deliberately"
-            )
-        else:
-            problems.append(
-                "the README no longer contains a test-suite breakdown — the "
-                "declared count can no longer be cross-checked against a sum"
-            )
+    #
+    # Round ten (n3): the n1 fix above could still be **bypassed with a decoy**.
+    # Its fail-closed branch only fires when the whitelist matched *nothing* —
+    # so renaming the real breakdown's categories while planting one legal
+    # whitelist triple elsewhere kept `matched` non-empty, the branch never
+    # ran, and the real breakdown's sum went **completely unchecked**
+    # (review mutants N1-e and N1-e2 both exited 0).
+    # Fix: judge **every generic triple on its own**.  Each generic match must
+    # be covered by a whitelist match at the same position (same span and same
+    # three numbers).  A generic triple that the whitelist does not cover is a
+    # triple whose categories are outside the whitelist → its sum is not
+    # verified → that is reported.  A decoy therefore cannot hide the real
+    # breakdown any more: the real one is itself a generic triple, and it is
+    # judged on its own merits.
+    generic = list(GENERIC_BREAKDOWN_RE.finditer(prose))
+    covered = {(m.start(), m.end()) for m in matched}
+    uncovered = [
+        m for m in generic
+        if not any(m.start() == s and m.end() == e for (s, e) in covered)
+    ]
+    if uncovered:
+        shown = " | ".join(repr(m.group(0)) for m in uncovered[:3])
+        problems.append(
+            "the README's test breakdown uses category names outside the "
+            f"whitelist ({BREAKDOWN_CATEGORY}): found {shown} — "
+            "the breakdown's sum is therefore NOT verified; either restore the "
+            "documented category names or extend the whitelist deliberately"
+        )
+    elif not matched:
+        # No generic triple at all: the breakdown is gone entirely.
+        problems.append(
+            "the README no longer contains a test-suite breakdown — the "
+            "declared count can no longer be cross-checked against a sum"
+        )
 
     return problems
 
