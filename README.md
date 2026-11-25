@@ -225,11 +225,15 @@ fault injection are the two steps that can turn a green run red — the first
 when the generated traffic stops reaching the branch it claims to test, the
 second when the harness stops catching defects it is supposed to catch.
 
-**A green `moon test` is not enough on its own.** `moon test` exits 0 when it
-finds *no* test at all (for example when `moon.pkg` — which declares the test
-dependencies — is missing from the tree), so `tools/regenerate_evidence.sh`
-asserts the **test count** against this README and fails the run if it does
-not match. The same script is what CI runs.
+**A green `moon test` is not enough on its own.** Measured on MoonBit
+0.1.20261119: deleting `moon.pkg` makes `moon test` **and** `moon check` exit
+**255**; deleting only the *test file* (leaving `moon.pkg` intact) makes
+`moon test` exit **0** having found nothing at all. A green exit code is
+therefore not, by itself, evidence that the suite ran — so the **test count**
+is asserted against this README by **one** checker,
+`tools/check_consistency.py`, which both `tools/regenerate_evidence.sh` and CI
+call. Neither the script nor CI can drift from the other, and neither can
+drift from this document.
 
 ### 4.1 Unit tests — `crdt_test.mbt`
 
@@ -391,7 +395,7 @@ the two situations that decide this project's correctness:
 |---|---|---|
 | LWW conflict decided **only by the node id** | the exact case a wrong tie-break breaks (defect 8) | **1956 / 2500** cases |
 | LWW conflict decided by the **counter** (same wall, different counter) | the middle layer of the `(wall, counter, node)` order — untested until the fourth review | **1983 / 2500** cases |
-| OR-Set removal that is **resurrectable** — a removal followed by a merge with a replica that still holds the removed dots | the exact case a forgotten removal breaks (defect 7) | **5275** durable removals observed, of which **4360** are resurrectable |
+| OR-Set removal that is **resurrectable** — a removal followed by a merge with a replica that still holds the removed dots (the tool measures this at **element** level — see the note below) | the exact case a forgotten removal breaks (defect 7) | **5275** durable removals observed, of which **4360** are resurrectable |
 | a **negative** value in the traffic | an implementation that accepted a negative increment would be invisible | **366 / 2500** cases |
 | a value **above 26** in the traffic | an implementation that truncated a counter to 32 bits would be invisible | **2124 / 2500** cases |
 
@@ -415,6 +419,20 @@ review found both:
   element was held by another replica at *some* point in the stream, without
   requiring the merge to happen after the removal — that over-counted by more
   than four times (343 against a true count of 11 for the same traffic).
+* **It is an element-level proxy, and this is the honest caveat.** The wording
+  in the table ("a replica that still holds the removed **dots**") describes
+  the *dot-level* truth; what `tools/coverage_report.py` tracks is the
+  **element**. The two do not coincide exactly: a merge can bring one dot of
+  an element back while the element's other dots stay tombstoned — the
+  element-level rule calls that "resurrectable", the dot-level rule does not.
+  On the same traffic (2500 cases/family, seed 20261124) an independent
+  dot-level simulation counts about **4084** resurrectable removals against
+  the element-level **4360** the tool reports — a gap of roughly **7 %**.
+  The number printed in the table is the element-level one, because that is
+  what the tool measures and what `evidence/coverage_report.log` contains.
+  The fourth review's "4.4× over-count" defect is gone; this residual
+  modelling approximation is stated here instead of being left for a reader
+  to discover.
 
 The last two rows of the table exist because the operation grammar used to be
 letters only (`a` = 1 … `z` = 26). That alphabet cannot express a negative
@@ -475,14 +493,14 @@ Two mechanisms close that gap.
 **A code fingerprint.** `tools/provenance.py` hashes every source file that
 can influence a recorded run — the MoonBit sources, `moon.pkg`, the Python
 reference, the harness and the test suite — and folds the hashes into one
-digest. Every log **written by `tools/regenerate_evidence.sh`** carries it in its
-header, and `evidence/environment.txt` carries it as `code-fp`. (The archived
-logs under `evidence/archive/` predate the mechanism and carry no fingerprint —
-they are history, not evidence about the current tree; each archive directory
-says so in its own README.)
+digest. Every file **written by `tools/regenerate_evidence.sh`** — the 12
+listed in §8 — carries it in its header, and `evidence/environment.txt` carries
+it as `code-fp`. (The archived logs under `evidence/archive/` predate the
+mechanism and carry no fingerprint — they are history, not evidence about the
+current tree; each archive directory says so in its own README.)
 
 ```
-# code fingerprint: f1428802f66d5f671e3a17691cf3fb3888f7b8d04344521fcc194b6d02e62ac9
+# code fingerprint: 8d783072aa74b0bffaf59de7c9e8b2e188d8ec4564f4d8f0f0e1cee11c467a34
 ```
 
 Two runs on the same tree produce the same digest, and any change to any
@@ -494,22 +512,39 @@ fingerprint change depending on whether the dependencies had been fetched yet.
 forbidden directories, nothing outside the allowed set) and exits non-zero if
 it regresses.
 
-**An asserted test count.** `moon test` exits 0 when it finds *no* test at all
-—for example when `moon.pkg`, which declares the test-only dependencies, is
-missing from the tree. So a green exit code is not evidence that the suite
-ran. `tools/regenerate_evidence.sh` parses the output and fails the run unless
-the count is exactly what this README declares:
+**An asserted test count.** What `moon test` actually does, measured on
+MoonBit 0.1.20261119:
+
+| Tree state | `moon test` | `moon check` |
+|---|---|---|
+| `moon.pkg` deleted | **exit 255** (`Cannot find import …`) | **exit 255** |
+| only the *test file* deleted | **exit 0**, having found nothing at all | exit 0 |
+| one assertion really fails | non-zero exit, **and the summary line is still printed** | exit 0 |
+
+The summary line is therefore the only reliable signal, and a suite that
+*fails* must not be able to hide behind a verdict of "nothing ran".
+`tools/check_consistency.py` parses the summary and fails unless the count is
+exactly what this README declares:
 
 ```
     [assert] moon test: 37 tests, 37 passed, 0 failed (README agrees)
 ```
 
-It also fails if the README itself mentions a different count, so the document
-and the suite cannot drift apart silently. CI asserts the same number.
+It also fails if this README itself mentions a different count, so the document
+and the suite cannot drift apart silently. **CI runs the same checker**
+(`tools/check_consistency.py`), so the evidence script and CI cannot assert
+different numbers — and the failure mode is a readable diagnostic, not a bare
+non-zero exit:
+
+```
+error: 'moon test': total=37 passed=36 failed=1
+       The suite did not pass — see the log for the failing test.
+```
 
 > `moon.pkg` is **source**, not build output: it declares which imports belong
 > to the `test` section, and it decides whether `moon test` finds the suite.
-> Do not exclude it when copying the tree.
+> Do not exclude it when copying the tree. (If it *is* missing, both `moon
+> check` and `moon test` fail with exit 255 — they do not pass silently.)
 
 ---
 
@@ -521,10 +556,10 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **58.95 µs ± 2.61 µs** |
-| `orset merge` (1000 elements) | **140.66 µs ± 10.77 µs** |
-| `orset add` (1000 sequential adds) | **6.39 ms ± 770.25 µs** |
-| `lwwregister merge` (1000 keys) | **76.96 µs ± 2.80 µs** |
+| `gcounter merge` (1000 entries) | **57.37 µs ± 2.47 µs** |
+| `orset merge` (1000 elements) | **139.67 µs ± 9.63 µs** |
+| `orset add` (1000 sequential adds) | **6.46 ms ± 729.29 µs** |
+| `lwwregister merge` (1000 keys) | **75.87 µs ± 2.62 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the
@@ -536,6 +571,14 @@ verbatim from `evidence/bench.log`; regenerate them with `bash tools/regenerate_
 > out more than twice as slow. The number that matters for a comparison is the
 > one next to it in the *same* log: `evidence/bench.log` carries the run's code
 > fingerprint, so a log can always be traced to the tree that produced it.
+>
+> The load the machine was under during this particular run is recorded in
+> `evidence/environment.txt` as `load-average`. The server is shared with
+> other people's work; this run was taken while its load average was around
+> 51, and the same code measured on the same tree at a load average above 140
+> came out roughly twice as slow. **If you re-run
+> `bash tools/regenerate_evidence.sh`, update these four numbers in the same
+> commit**, or the README will no longer match `evidence/bench.log`.
 
 
 The OR-Set is the most expensive type to merge, and that is inherent: merging
@@ -580,11 +623,13 @@ Raw output: [`evidence/bench.log`](evidence/bench.log).
   implementations. The order is therefore defined as UTF-16 code unit order
   and implemented the same way on both sides. The same applies to the LWW node
   tie-break.
-* **The operation grammar uses letters instead of decimal numbers** (`a` = 1 …
-  `z` = 26). This removes *all* text-to-number parsing from the implementation
-  that the differential test is supposed to validate — one less place for a
-  parser bug to hide. Unit tests use plain integer literals and therefore
-  cover the full numeric range.
+* **The operation grammar uses tokens instead of decimal numbers.** The value
+  table has **57** entries: `0` = 0, the letters `a` … `z` = 1 … 26, the
+  uppercase letters `A` … `Z` = 27 … 52, and four symbol tokens (`!` = -1,
+  `@` = -2, `[` = 2^31 - 1, `]` = 2^31). This removes *all* text-to-number
+  parsing from the implementation that the differential test is supposed to
+  validate — one less place for a parser bug to hide. Unit tests use plain
+  integer literals and therefore cover the full numeric range.
 
 ---
 
@@ -641,14 +686,57 @@ moonbit-crdt/
 ├── cmd/main/                    runnable demonstration
 ├── cmd/replay/                  replay engine used by the differential harness
 ├── .github/workflows/ci.yml     CI: check / test / bench / differential / coverage / fault injection
+├── CHANGELOG.md                 the update record: what changed in which version
 ├── tools/
 │   ├── reference_crdt.py        reference implementation (Python)
 │   ├── fuzz_diff.py             differential fuzzing harness with shrinking
 │   ├── fault_injection.py       injects known defects, checks the harness fails
 │   ├── coverage_report.py       measures whether the traffic reaches the branches
-│   └── regenerate_evidence.sh   regenerates every raw log in evidence/
+│   ├── provenance.py            computes the code fingerprint every log carries
+│   ├── check_consistency.py     the one test-count / README consistency gate
+│   └── regenerate_evidence.sh   regenerates this round's raw logs in evidence/
 └── evidence/                    raw logs of the runs quoted above
+    ├── bench.log
+    ├── coverage_report.log
+    ├── demo.log
+    ├── environment.txt
+    ├── fault_injection.log
+    ├── fuzz_diff.seed42.log
+    ├── fuzz_diff.seed777.log
+    ├── fuzz_diff.seed20261124.log
+    ├── fuzz_diff.seed31337.log
+    ├── fuzz_summary.txt
+    ├── moon_check.log
+    ├── moon_test.log
+    └── archive/                 superseded runs, kept as audit history only
+        ├── pre-round4-20261124/
+        └── pre-fix-20261124/
 ```
+
+`tools/regenerate_evidence.sh` regenerates **this round's** raw logs — the
+twelve files listed under `evidence/` above, and nothing else. It does not
+write anything under `evidence/archive/`: those directories hold superseded
+runs that are kept as audit history, each with its own README saying why every
+file in it is obsolete. `evidence/environment.txt` also records the commit of
+the checkout the tree was copied from, when it is run inside one; when the
+tree is not a checkout (a plain copy on the build server), it says so and
+points at the code fingerprint, which is the authoritative identity of the
+tree either way.
+
+**Three of the twelve files are not byte-reproducible by nature**, and the
+difference is understood rather than mysterious:
+
+| File | Why a re-run can differ |
+|---|---|
+| `bench.log` | the timings move with the machine's load (see §5) |
+| `environment.txt` | it records the run's timestamp |
+| `moon_check.log` | its last line depends on the build cache: `ran 2 tasks, now up to date` on a fresh copy, `no work to do` on a re-run in the same tree |
+
+The other nine are byte-identical across runs on the same tree.
+
+**Where the update record lives.** `CHANGELOG.md` is the version-by-version
+record of what changed; the commit history, the issues and the pull requests
+carry the rest of it.
 
 ## 9. Author / 贡献者
 

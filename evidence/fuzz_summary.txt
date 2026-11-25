@@ -1,3 +1,5 @@
+# code fingerprint: 8d783072aa74b0bffaf59de7c9e8b2e188d8ec4564f4d8f0f0e1cee11c467a34
+# seed summary of the differential harness (one [summary] line per seed)
 [seed 20261124] [summary] 10000 cases compared, 0 mismatch(es)
 [seed 777] [summary] 4000 cases compared, 0 mismatch(es)
 [seed 31337] [summary] 1600 cases compared, 0 mismatch(es)

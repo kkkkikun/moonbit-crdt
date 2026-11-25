@@ -30,8 +30,10 @@ Operation grammar (identical to the MoonBit side):
     set   <replica> <key> <value> <wall> <counter>           lww
     merge <target> <source>                                  all
 
-Numbers are encoded as letters (a=1 … z=26) so that neither side has to parse
-decimal numbers out of text.
+Numbers are encoded as tokens of the value table (the letters a…z, the `0`
+token, the uppercase letters A…Z, and four symbol tokens: `!` = -1, `@` = -2,
+`[` = 2**31 - 1, `]` = 2**31) so that neither side has to parse decimal
+numbers out of text.
 """
 
 from __future__ import annotations

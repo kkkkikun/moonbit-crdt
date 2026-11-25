@@ -1,0 +1,8 @@
+# seed=777 cases=1000 max_ops=12
+# families: gcounter,pncounter,orset,lww  (cases is per family)
+$ python3 tools/fuzz_diff.py --cases 1000 --seed 777 --max-ops 12 --moon-cmd "moon run cmd/replay --"
+[ok] gcounter: 1000 cases — MoonBit and the reference agree
+[ok] pncounter: 1000 cases — MoonBit and the reference agree
+[ok] orset: 1000 cases — MoonBit and the reference agree
+[ok] lww: 1000 cases — MoonBit and the reference agree
+[summary] 4000 cases compared, 0 mismatch(es)

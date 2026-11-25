@@ -1,0 +1,38 @@
+# demo
+$ moon run cmd/main
+=== moonbit-crdt ===
+
+[1] G-Counter — disjoint increments merge cleanly
+  A = A=3 (value 3)
+  B = B=5 (value 5)
+  merged = A=3;B=5 (value 8)
+  -> no increment is lost, and the merge is order-independent
+
+[2] PN-Counter — increments and decrements coexist
+  state = p=A=10|n=A=4
+  value = 6 (10 increments - 4 decrements)
+
+[3] OR-Set — a concurrent add wins, but an observed removal is durable
+  canonical form = <live dots>|<tombstoned dots>|<dot counters>
+  (a) add-wins — B removed the dot it had seen; A added a dot B never saw
+      A          = lamp=A#0,A#1||A=2
+      B          = lamp=|lamp=A#0|A=1
+      merged     = lamp=A#1|lamp=A#0|A=2
+      contains   = true  <- the concurrent add won
+
+  (b) durable removal — A removed a dot it had observed; B still holds it
+      A          = desk=|desk=A#0|A=1
+      B (stale)  = desk=A#0||A=1
+      merged     = desk=|desk=A#0|A=1
+      contains   = false / false  <- not resurrected
+
+[4] LWW-Register — concurrent writes, deterministic winner
+  A writes "light" at t=1000
+  B writes "dark"  at t=2000
+  merged value = dark
+  (the same winner is chosen no matter which side merges first)
+
+Every merge above is commutative, associative and idempotent,
+under the preconditions stated in the README (distinct node ids,
+each replica writing only its own counter key).
+see crdt_test.mbt and the differential harness in tools/.

@@ -11,7 +11,7 @@
 /// ## Operation grammar (one line = one operation)
 ///
 /// ```
-/// inc   <replica> <delta>     G-Counter increment   (delta is a letter: a=1 … z=26)
+/// inc   <replica> <delta>     G-Counter increment   (delta is a token of the value table below)
 /// pinc  <replica> <delta>     PN-Counter increment
 /// ninc  <replica> <delta>     PN-Counter decrement
 /// add   <replica> <element>   OR-Set add
@@ -20,11 +20,13 @@
 /// merge <target> <source>     merge source into target
 /// ```
 ///
-/// Numbers are encoded as **letters** rather than decimal digits on purpose:
-/// it keeps the operation stream free of any text-to-number parsing in the
-/// MoonBit implementation, which removes a whole class of parsing bugs from
-/// the thing the differential test is supposed to validate.  The values are
-/// still fully covered by the unit tests, which use plain integer literals.
+/// Numbers are encoded as **tokens of the value table** (the letters `a` …
+/// `z`, the `0` token, the uppercase letters `A` … `Z`, and four symbol
+/// tokens) rather than decimal digits, on purpose: it keeps the operation
+/// stream free of any text-to-number parsing in the MoonBit implementation,
+/// which removes a whole class of parsing bugs from the thing the
+/// differential test is supposed to validate.  The values are still fully
+/// covered by the unit tests, which use plain integer literals.
 
 ///|
 /// Decodes the letter encoding used by the operation grammar.

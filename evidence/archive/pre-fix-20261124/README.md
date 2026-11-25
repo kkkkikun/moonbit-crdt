@@ -7,7 +7,7 @@ was before* the fixes that landed in PR #2 (merged 2026-11-24, `90dbc1b`).
 
 | Log | What it was | Why it is superseded |
 |---|---|---|
-| `moon_test.log` | `Total tests: 27, passed: 27` | the suite now has **33** tests |
+| `moon_test.log` | `Total tests: 27, passed: 27` | the suite now has **37** tests |
 | `bench.log` | the pre-fix timings | the OR-Set merge path now also unions the tombstone table and filters the merged dot set by it, so the merge cost changed |
 | `demo.log` | the old demo | the OR-Set section demonstrated a *removal on an empty set* — it could not show removal durability, because removal was not durable yet |
 | `fuzz_diff.*.log` | the pre-fix differential run | the reference implementation was rewritten (ORSWOT causal-context rule instead of "drop the dot"), and the generator now produces node-decided write conflicts on purpose — **these two runs are not comparable**, and the old one had no proof power at the semantic level |
@@ -29,7 +29,12 @@ script exists:
 bash tools/regenerate_evidence.sh
 ```
 
-That script writes every file in `evidence/` from scratch, with correct
-headers, and it is the same script CI runs. The current `evidence/` was
+That script regenerates **this round's** raw logs in `evidence/` — the twelve
+files listed in `README.md` §8 — with correct headers, and nothing else. It
+writes nothing under `evidence/archive/`. The current `evidence/` was
 produced by it on the merged code, on the same server and toolchain recorded
 in `evidence/environment.txt`.
+
+CI does **not** run the whole script; what CI runs for the test count is the
+same gate the script uses, `tools/check_consistency.py`, so the two cannot
+disagree about how many tests the project has.
