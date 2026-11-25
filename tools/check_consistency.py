@@ -66,6 +66,7 @@ Exit codes::
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import subprocess
@@ -104,10 +105,18 @@ BENCH_RE = re.compile(r"([\d.]+)\s*(µs|ms)\s*±\s*([\d.]+)\s*(µs|ms)")
 #   "[orset]  durable removals         : 5275"
 # (the trailing " cases" is optional — three of the seven lines end in a
 # bare number)
-COVERAGE_RE = re.compile(r"^.*:\s*(\d+(?: / \d+)?)(?:\s+cases)?\s*$", re.M)
+# Round eight (m4): the old pattern matched *any* "…: <number>" line, so a
+# line such as "18,000 cases, 0 mismatches" could be read as a coverage
+# figure.  A coverage row always starts with the family tag ("[lww]",
+# "[orset]", "[values]"), so the tag is now required.
+COVERAGE_RE = re.compile(
+    r"^\[[a-z]+\]\s+[^:\n]*:\s*(\d+(?: / \d+)?)(?:\s+cases)?\s*$", re.M
+)
 
 # The fingerprint every evidence file carries in its header.
-FP_RE = re.compile(r"code fingerprint:\s*([0-9a-f]{64})")
+# ``environment.txt`` spells it "code-fp     : <hash>" (a key/value line,
+# not a "# code fingerprint:" comment), so both spellings are accepted.
+FP_RE = re.compile(r"(?:code fingerprint|code-fp)\s*:\s*([0-9a-f]{64})")
 
 # The evidence files that must carry a fingerprint and must agree with the
 # current sources.  ``environment.txt`` is included: it records the identity
@@ -124,6 +133,10 @@ EVIDENCE_FILES = (
     "fuzz_summary.txt",
     "moon_check.log",
     "moon_test.log",
+    # Round eight (m5): the comment above already claimed environment.txt was
+    # included, but the tuple did not list it — so one of the twelve evidence
+    # files was never checked for freshness.
+    "environment.txt",
 )
 
 # The README's test-suite breakdown.  It must add up to the declared count.
@@ -131,7 +144,24 @@ EVIDENCE_FILES = (
 # does not classify the tests), so only the sum is checkable — this check
 # catches "15 + 10 + 13" but cannot catch "15 + 10 + 12".  The README says so
 # explicitly, in §4.
-BREAKDOWN_RE = re.compile(r"(\d+)\s*(\w+)\s*,\s*(\d+)\s*(\w+)\s*,\s*(\d+)\s*(\w+)")
+#
+# Round eight (m4): the old pattern accepted *any* three "number word" triples,
+# so it also matched the prose phrase "18,000 cases, 0 mismatches" (it latched
+# onto "1,000 cases, 0 mismatches") and reported a bogus breakdown of
+# [1, 0, 0].  The category names are now an explicit whitelist and the
+# numbers must be separated from them by whitespace — a thousands separator
+# cannot satisfy that.
+BREAKDOWN_CATEGORY = r"(?:unit|property|regression|tests?)"
+# NOTE: every line below ends with an explicit "+".  Relying on Python's
+# implicit adjacent-string concatenation across a line that ends in a
+# string *expression* silently drops the following lines — that is how the
+# first version of this pattern ended up matching only part of a triple
+# (and how a negative test of the gate passed for the wrong reason).
+BREAKDOWN_RE = re.compile(
+    r"(?<![\d,])(\d+)\s+" + BREAKDOWN_CATEGORY + r"\b\s*,\s*"
+    + r"(\d+)\s+" + BREAKDOWN_CATEGORY + r"\b\s*,\s*"
+    + r"(\d+)\s+" + BREAKDOWN_CATEGORY + r"\b"
+)
 
 
 def project_root() -> Path:
@@ -174,24 +204,69 @@ def run_moon_test() -> tuple[str, int]:
     return proc.stdout, proc.returncode
 
 
-def strip_fenced(text: str) -> str:
-    """Return the text with every fenced code block removed.
+def strip_code(text: str) -> str:
+    """Return the text with every code block and every HTML comment removed.
 
     Round seven of the review showed that a fenced *example* can satisfy a
     naive "the README mentions N tests" scan, so a declaration inside a code
     block must not count as one.
+
+    Round eight (m2) showed that stripping only ``` fences leaves three
+    bypasses open, each of them measured to exit 0:
+
+      * a ``~~~`` fence (CommonMark allows it as well as ```);
+      * an **indented** code block (four spaces or a tab);
+      * an **HTML comment** (``<!-- … -->``), which Markdown renders as
+        nothing and which therefore must not count as prose either.
+
+    All three are removed here.
 
     An **odd** number of fences means the document itself is malformed.  That
     is reported rather than papered over: dropping everything from the
     unpaired fence to the end of the file would silently hide the whole
     remainder of the README from every check.
     """
-    if text.count("```") % 2 != 0:
-        raise ValueError(
-            f"the document has an odd number of ``` fences ({text.count('```')}) "
-            "— a code block is not closed, so the rest of the file cannot be "
-            "read reliably")
-    return re.sub(r"```.*?```", "", text, flags=re.S)
+    for marker in ("```", "~~~"):
+        if text.count(marker) % 2 != 0:
+            raise ValueError(
+                f"the document has an odd number of {marker} fences "
+                f"({text.count(marker)}) — a code block is not closed, so the "
+                "rest of the file cannot be read reliably")
+
+    # HTML comments (possibly spanning several lines).
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+
+    # Fenced blocks, both flavours.  The fence may be indented.
+    text = re.sub(r"^[ \t]*(`{3,}|~{3,}).*?^\1[ \t]*$", "", text,
+                  flags=re.S | re.M)
+
+    # Indented code blocks.
+    #
+    # Only a *standalone* run of indented lines counts as one: in Markdown an
+    # indented code block must not interrupt a paragraph and it ends at the
+    # first blank line.  A list item's continuation lines are indented too,
+    # but they follow the list marker rather than a blank line — stripping
+    # them would silently delete real prose from the text every check reads.
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        is_indented = line.startswith("    ") or line.startswith("\t")
+        if not (is_indented and (not out or not out[-1].strip())):
+            out.append(line)
+            i += 1
+            continue
+        # a standalone indented block starts here — drop it entirely
+        while i < n and (lines[i].startswith("    ") or lines[i].startswith("\t")
+                         or not lines[i].strip()):
+            i += 1
+    return "\n".join(out)
+
+
+# Backwards-compatible alias: the old name is used by other tooling.
+strip_fenced = strip_code
 
 
 def read_text_safe(path: Path) -> tuple[str | None, str | None]:
@@ -235,7 +310,7 @@ def current_fingerprint(root: Path) -> str | None:
     return token if re.fullmatch(r"[0-9a-f]{64}", token) else None
 
 
-def check_evidence_fingerprint(root: Path) -> list[str]:
+def check_evidence_fingerprint(root: Path, evidence_dir: Path | None = None) -> list[str]:
     """The recorded evidence must have been produced by *this* source tree.
 
     Round seven of the review: the fingerprint was written into every log but
@@ -243,9 +318,9 @@ def check_evidence_fingerprint(root: Path) -> list[str]:
     evidence file stale while all gates stayed green.
     """
     problems: list[str] = []
-    evidence = root / "evidence"
+    evidence = evidence_dir if evidence_dir is not None else (root / "evidence")
     if not evidence.is_dir():
-        return ["evidence/ directory is missing — the recorded evidence cannot be checked."]
+        return [f"{evidence} directory is missing — the recorded evidence cannot be checked."]
 
     current = current_fingerprint(root)
     if current is None:
@@ -274,7 +349,68 @@ def check_evidence_fingerprint(root: Path) -> list[str]:
     return problems
 
 
-def check_readme_numbers(readme_text: str, root: Path) -> list[str]:
+def check_evidence_manifest(evidence_dir: Path) -> list[str]:
+    """``evidence/MANIFEST.sha256`` must match the files it lists.
+
+    Round eight (m6): the README-vs-evidence cross-check can be defeated by
+    changing the log **and** the README together — the gate then sees a
+    perfectly self-consistent pair of wrong numbers.  What it can still catch
+    is a change to a log that is not backed by the manifest.
+
+    So every evidence file is listed in ``evidence/MANIFEST.sha256`` with its
+    SHA-256, and the gate recomputes those digests.  Editing a log without
+    updating the manifest is a failure.
+
+    The limit is stated plainly rather than hidden: somebody who edits the
+    log, the manifest *and* the README consistently can still get through.
+    Nothing that compares numbers can rule that out — only re-running the
+    harness can, and the benchmark figures are load-dependent (see §4.7).
+    """
+    problems: list[str] = []
+    manifest = evidence_dir / "MANIFEST.sha256"
+    if not manifest.is_file():
+        return [
+            f"{manifest.name} is missing — the evidence files are not protected "
+            "against a log being edited without the manifest being updated"
+        ]
+
+    listed: dict[str, str] = {}
+    for raw in manifest.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2:
+            problems.append(f"{manifest.name}: cannot parse the line {raw!r}")
+            continue
+        digest, name = parts[0].strip(), parts[1].strip().lstrip("*")
+        listed[name] = digest
+
+    for name in EVIDENCE_FILES:
+        if name not in listed:
+            problems.append(f"{manifest.name} does not list evidence/{name}")
+            continue
+        path = evidence_dir / name
+        if not path.is_file():
+            continue  # already reported by the freshness check
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+        if actual != listed[name]:
+            problems.append(
+                f"evidence/{name} does not match {manifest.name} "
+                f"(manifest {listed[name][:12]}…, actual {actual[:12]}…) — "
+                "the log was changed without updating the manifest"
+            )
+
+    for name in listed:
+        if name not in EVIDENCE_FILES:
+            problems.append(f"{manifest.name} lists an unknown file: {name}")
+
+    return problems
+
+
+def check_readme_numbers(readme_text: str, root: Path,
+                         evidence_dir: Path | None = None,
+                         skip_bench_cross_check: bool = False) -> list[str]:
     """The README's benchmark and coverage figures must match the evidence.
 
     Round seven of the review: changing a benchmark value in the README
@@ -282,11 +418,23 @@ def check_readme_numbers(readme_text: str, root: Path) -> list[str]:
     gate green, because nothing compared the prose with the logs.
     """
     problems: list[str] = []
-    prose = strip_fenced(readme_text)
+    prose = strip_code(readme_text)
+    evidence = evidence_dir if evidence_dir is not None else (root / "evidence")
 
     # --- benchmarks: the two sets must be equal, not merely overlapping ---
-    bench_path = root / "evidence" / "bench.log"
-    if bench_path.is_file():
+    #
+    # Round eight (M1): a benchmark value depends on the machine's load, so
+    # **re-running the evidence necessarily produces a different number**.
+    # Comparing the freshly written benchmark against the README would make
+    # the evidence script fail on a perfectly healthy tree — which is what
+    # happened.  The comparison therefore belongs to the *clean-tree* check
+    # (CI, on the committed evidence/), not to the regeneration run; the
+    # regeneration run skips it via --skip-bench-cross-check and asks the
+    # operator to sync the README instead.
+    bench_path = evidence / "bench.log"
+    if skip_bench_cross_check:
+        pass
+    elif bench_path.is_file():
         bench_text, err = read_text_safe(bench_path)
         if bench_text is None:
             problems.append(f"evidence/bench.log: {err}")
@@ -304,11 +452,11 @@ def check_readme_numbers(readme_text: str, root: Path) -> list[str]:
                     "the README's benchmark numbers differ from evidence/bench.log: "
                     f"README {sorted(from_readme)} vs evidence {sorted(from_bench)}"
                 )
-    else:
+    elif not skip_bench_cross_check:
         problems.append("evidence/bench.log is missing — benchmarks cannot be checked")
 
     # --- coverage figures: every figure in the log must appear in the prose ---
-    cov_path = root / "evidence" / "coverage_report.log"
+    cov_path = evidence / "coverage_report.log"
     if cov_path.is_file():
         cov_text, err = read_text_safe(cov_path)
         if cov_text is None:
@@ -336,9 +484,11 @@ def check_readme_numbers(readme_text: str, root: Path) -> list[str]:
         )
 
     # --- the suite breakdown must add up to the declared count ---
-    m = BREAKDOWN_RE.search(prose)
-    if m:
-        nums = [int(m.group(i)) for i in (1, 3, 5)]
+    # Round eight (m3): the old code took only the **first** match, so a
+    # correct triple placed early in the document masked a wrong one later on.
+    # Every triple is checked now.
+    for m in BREAKDOWN_RE.finditer(prose):
+        nums = [int(m.group(i)) for i in (1, 2, 3)]   # the three counts
         if sum(nums) != expected_tests():
             problems.append(
                 f"the README's test breakdown {nums} sums to {sum(nums)}, "
@@ -374,6 +524,8 @@ def check(
     expected: int,
     log_path: Path | None = None,
     skip_evidence_checks: bool = False,
+    evidence_dir: Path | None = None,
+    skip_bench_cross_check: bool = False,
 ) -> int:
     """Run every consistency check.  Returns the process exit code."""
     # --- 1. did `moon test` even produce a summary? ------------------------
@@ -478,7 +630,7 @@ def check(
 
     # Round seven: a declaration inside a fenced example block does not count.
     try:
-        prose = strip_fenced(readme_text)
+        prose = strip_code(readme_text)
     except ValueError as exc:
         print(f"error: README drift: {readme}: {exc}", file=sys.stderr)
         return EXIT_MISMATCH
@@ -516,8 +668,11 @@ def check(
     # The script runs the full check again at the very end.
     if not skip_evidence_checks:
         root = readme.parent
-        extra_problems = check_evidence_fingerprint(root) + check_readme_numbers(
-            readme_text, root
+        ev_dir = evidence_dir if evidence_dir is not None else (root / "evidence")
+        extra_problems = (
+            check_evidence_fingerprint(root, ev_dir)
+            + check_evidence_manifest(ev_dir)
+            + check_readme_numbers(readme_text, root, ev_dir, skip_bench_cross_check)
         )
         if extra_problems:
             print("error: the recorded evidence and the README disagree:", file=sys.stderr)
@@ -569,6 +724,25 @@ def main(argv: list[str] | None = None) -> int:
         help="print the declared number of tests and exit",
     )
     parser.add_argument(
+        "--evidence-dir",
+        default=None,
+        help=(
+            "directory holding the evidence to check (default: <project root>/evidence). "
+            "The evidence script passes its own output directory so that the freshness "
+            "check looks at the files it has just written, not at the previous run's."
+        ),
+    )
+    parser.add_argument(
+        "--skip-bench-cross-check",
+        action="store_true",
+        help=(
+            "do not require the README's benchmark figures to equal the recorded ones. "
+            "A benchmark value depends on the machine's load, so a re-run necessarily "
+            "produces a different number; the regeneration run skips this comparison "
+            "and asks the operator to sync the README instead."
+        ),
+    )
+    parser.add_argument(
         "--skip-evidence-checks",
         action="store_true",
         help=(
@@ -608,6 +782,8 @@ def main(argv: list[str] | None = None) -> int:
         expected,
         log_path,
         skip_evidence_checks=args.skip_evidence_checks,
+        evidence_dir=Path(args.evidence_dir) if args.evidence_dir else None,
+        skip_bench_cross_check=args.skip_bench_cross_check,
     )
 
 

@@ -504,8 +504,20 @@ mechanism and carry no fingerprint — they are history, not evidence about the
 current tree; each archive directory says so in its own README.)
 
 ```
-# code fingerprint: f95e3e89ab1277d95100d7e949ab49a447b067a4886c4afbbc952eb2101f8fdf
+# code fingerprint: <64 hex digits>
 ```
+
+The exact digest is **not written here on purpose**: it changes with every
+change to any participating file, so a value frozen into the README would be
+stale (and unreproducible) the moment the tree changes. Print the one that
+belongs to *your* tree with:
+
+```
+$ python3 tools/provenance.py --quiet
+```
+
+and compare it with the `# code fingerprint:` line of any log
+(`grep -m1 'code fingerprint' evidence/bench.log`).
 
 **The fingerprint is now *checked*, not just written.** Until the seventh review
 it was recorded in every log and never compared with anything: editing one line
@@ -514,13 +526,27 @@ consistency gate now recomputes the digest of the current tree and refuses to
 pass when a recorded log was produced by a different one:
 
 ```
-$ printf '\n# probe\n' >> world.mbt
+$ printf '\n// probe\n' >> world.mbt     # MoonBit comments start with "//"
 $ python3 tools/check_consistency.py --test-log evidence/moon_test.log --moon-exit 0
 error: the recorded evidence and the README disagree:
   - evidence/bench.log was produced by a different source tree
-    (recorded 8d783072aa74…, current 71116d1e4a03…) — the evidence is stale,
-    re-run tools/regenerate_evidence.sh
+    (recorded <recorded digest>…, current <current digest>…) — the evidence is
+    stale, re-run tools/regenerate_evidence.sh
 ```
+
+> The two digests above are shown as placeholders on purpose: they are
+> recomputed on every run, so a frozen pair would be stale and unreproducible.
+> The command above is the reproduction — the gate's exit code is the assertion.
+
+A third mechanism protects the logs themselves. `evidence/MANIFEST.sha256`
+lists the SHA-256 of every recorded log, and the consistency gate recomputes
+those digests, so **editing a log without updating the manifest fails the
+gate**. The limit is stated rather than hidden: a change that updates the log,
+the manifest *and* the README consistently still passes — no check that
+compares numbers can rule that out, because the benchmark figures are
+load-dependent (see below) and therefore cannot be re-derived offline. What
+the manifest does guarantee is that a log is bound to the tree state it was
+committed with.
 
 Two runs on the same tree produce the same digest, and any change to any
 participating file changes it. The file list is enumerated explicitly on
@@ -601,10 +627,10 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **120.60 µs ± 6.71 µs** |
-| `orset merge` (1000 elements) | **316.24 µs ± 30.30 µs** |
-| `orset add` (1000 sequential adds) | **15.07 ms ± 1.98 ms** |
-| `lwwregister merge` (1000 keys) | **154.35 µs ± 7.50 µs** |
+| `gcounter merge` (1000 entries) | **121.81 µs ± 8.35 µs** |
+| `orset merge` (1000 elements) | **318.06 µs ± 25.17 µs** |
+| `orset add` (1000 sequential adds) | **14.43 ms ± 1.48 ms** |
+| `lwwregister merge` (1000 keys) | **152.11 µs ± 8.81 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the
@@ -754,13 +780,15 @@ moonbit-crdt/
     ├── fuzz_summary.txt
     ├── moon_check.log
     ├── moon_test.log
+    ├── MANIFEST.sha256          SHA-256 of every log above; the gate checks it
     └── archive/                 superseded runs, kept as audit history only
         ├── pre-round4-20261124/
         └── pre-fix-20261124/
 ```
 
 `tools/regenerate_evidence.sh` regenerates **this round's** raw logs — the
-twelve files listed under `evidence/` above, and nothing else. It does not
+twelve files listed under `evidence/` above (plus `MANIFEST.sha256`), and
+nothing else. It does not
 write anything under `evidence/archive/`: those directories hold superseded
 runs that are kept as audit history, each with its own README saying why every
 file in it is obsolete. `evidence/environment.txt` also records the commit of

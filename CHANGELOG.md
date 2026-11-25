@@ -8,6 +8,109 @@ The project is **not published to the MoonBit registry yet** (see `README.md`
 made at — the commit history, the issues and the pull requests carry the rest
 of the update record.
 
+## Unreleased — the eighth-review fixes (2026-11-25)
+
+Fixes for the **1 M + 8 m** findings of the eighth independent review
+(`qa/independent_review_round8.md` in the project workspace). The one **S**
+finding — the public history still contains commits signed with a real name —
+is an outbound action and is tracked outside this file.
+
+### The evidence script no longer fails on a healthy tree (M1)
+
+The seventh review added a *second* consistency pass at the end of
+`tools/regenerate_evidence.sh`, and that pass had two defects that made the
+script **exit 3 on a perfectly healthy tree**:
+
+* it checked `<repo>/evidence/` — the *previous* run's logs — instead of the
+  `$OUT` directory it had just written;
+* it required the README's benchmark figures to equal the freshly recorded
+  ones. A benchmark value depends on the machine's load, so re-running the
+  evidence **necessarily** produces a different number. Comparing them was
+  comparing a fresh measurement with a frozen one.
+
+The comparison now belongs where it can succeed — the clean-tree check (CI,
+running against the committed `evidence/`) — while the regeneration run checks
+the thing it is actually responsible for: *were these logs produced by the
+current sources?* `check_consistency.py` gained `--evidence-dir` (which
+directory to check) and `--skip-bench-cross-check` (skip the load-dependent
+comparison); the script passes both and then prints the new benchmark line so
+the README can be synced.
+
+### The gate can no longer be walked around (m2, m3, m4, m5, m6)
+
+* **m2** — a declaration inside a `~~~` fence, an indented code block or an
+  HTML comment still satisfied the "the README declares N tests" check. All
+  three are now stripped, and an unpaired fence of either flavour is reported
+  instead of silently swallowing the rest of the file.
+* **m3** — the suite breakdown was checked with a single regex match, so a
+  correct triple early in the document masked a wrong one later on. Every
+  triple is checked now.
+* **m4** — the same pattern also matched the prose phrase *"18,000 cases, 0
+  mismatches"* and reported a bogus breakdown of `[1, 0, 0]`. The category
+  names are now an explicit whitelist and a thousands separator cannot satisfy
+  the pattern. The coverage pattern likewise requires its family tag.
+* **m5** — `evidence/environment.txt` was not in the freshness list even
+  though the comment above the list said it was; it is checked now, and its
+  `code-fp:` spelling is recognised.
+* **m6** — the README-vs-evidence comparison could be defeated by changing
+  the log *and* the README together. `evidence/MANIFEST.sha256` now lists the
+  SHA-256 of every recorded log and the gate recomputes them, so a log
+  changed without the manifest fails. The remaining limit — a change that
+  updates log, manifest and README consistently — is stated in README §4.7
+  rather than left implicit, because no comparison of numbers can rule it out
+  while the benchmark values are load-dependent.
+
+### Documentation (m7, m8)
+
+* **m7** — this file had no entry for the seventh review's fixes.
+* **m8** — README §4.7 showed a frozen fingerprint and a mutation command
+  using `#` as a comment, which is not a MoonBit comment (`//` is), so the
+  example could not be reproduced. Both are now placeholders plus the command
+  that prints the live values.
+
+### Outbound
+
+The GitHub Support request (the only path to the remaining **S** finding) is
+kept in the project workspace and is refreshed against the final commit of
+this round — its quoted commit IDs must not outlive the commit they name.
+
+---
+
+## Unreleased — the seventh-review fixes (2026-11-25)
+
+Fixes for the **1 M + 6 m** findings of the seventh independent review
+(`qa/independent_review_round7.md` in the project workspace).
+
+* **M1** — the Support request contained four statements that were not true
+  of the repository: it named a commit that was no longer `main`, called all
+  thirteen non-`noreply` commits pull-request commits (only one was), said
+  the remote branches had been deleted (they were rewritten, not deleted), and
+  quoted an `ls-remote` output that no longer matched. The local object store
+  was genuinely pruned (`reflog expire --expire=now --all` plus
+  `git gc --prune=now`), which took the local non-`noreply` commits from
+  thirteen to one; the request now says exactly that.
+* **m1** — the gate accepted a test-count declaration inside a fenced code
+  block. A declaration only counts in the prose; an unpaired fence is now an
+  error rather than a way to hide the rest of the file.
+* **m2** — the code fingerprint was written into every log and never checked.
+  The gate now recomputes the digest of the current tree and refuses to pass
+  when a recorded log came from a different one.
+* **m3** — README §4.5 quoted a dot-level figure that no independent
+  implementation could reproduce. The figure is gone; the section states the
+  order of magnitude and why the exact value is not reproducible.
+* **m4** — README said "11" where the tooling said "77". The truth is 77
+  (confirmed against the fourth review's own table), and the README now says
+  77.
+* **m5** — the benchmark, coverage and breakdown figures were not part of any
+  gate. They are now cross-checked against the recorded logs.
+* **m6** — a README that is not valid UTF-8 produced a traceback. It now
+  produces a readable diagnostic and a distinct exit code.
+
+The update record also gained this file, and `tools/check_consistency.py`
+became the single entry point that the evidence script and CI both call.
+
+---
+
 ## Unreleased — the sixth-review fixes (2026-11-25)
 
 Fixes for the ten **m**-level findings of the sixth independent review

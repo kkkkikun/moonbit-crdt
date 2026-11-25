@@ -190,14 +190,57 @@ echo "==> fault injection (the harness must catch known defects)"
   python3 tools/fault_injection.py --project . --work /tmp/c05_fault --cases 800 --seed 20261124 2>&1
 } > "$OUT/fault_injection.log"
 
-# --- 硬断言（第二遍）：全部证据必须由当前源码产出，且 README 的数字与之相符 ---
+# --- 证据清单：每份证据的 SHA-256 ---------------------------------------------
+# 第八轮评审 m6：README 与日志的「数字对账」有个固有缺口 ——
+# 同时把日志和 README 改成一致（哪怕一致地错），门禁看不出来。
+# 能防住的是「只改日志」：清单里记着每份证据的 SHA-256，
+# 门禁重算一遍；对不上就报错。
+# 清单本身不列自己（避免自引用）。
+echo "==> evidence manifest"
+(
+  cd "$OUT"
+  : > MANIFEST.sha256
+  for f in bench.log coverage_report.log demo.log environment.txt fault_injection.log \
+           fuzz_diff.seed20261124.log fuzz_diff.seed42.log fuzz_diff.seed777.log \
+           fuzz_diff.seed31337.log fuzz_summary.txt moon_check.log moon_test.log; do
+    [ -f "$f" ] || { echo "error: $f was not generated" >&2; exit 1; }
+    sha256sum "$f" >> MANIFEST.sha256
+  done
+)
+cat "$OUT/MANIFEST.sha256"
+
+# --- 硬断言（第二遍）：全部证据必须由当前源码产出 -----------------------
 # 第一遍查的是「套件跑没跑」；这一遍查的是「证据是不是这一版的证据」。
 # 少了这一遍，改一行源码就能带着全部过期日志一起提交（第七轮评审 m-2）。
+#
+# ⚠️ 第八轮评审 M1 指出过两个问题，这里一并修掉：
+#   (a) 这一遍原先检查的是 **<repo>/evidence/** —— 也就是**上一轮**的日志，
+#       而不是它刚刚写出的 $OUT。证据目录不对，检查的就是旧件。
+#       → 现在传 --evidence-dir "$OUT"，查的就是刚写出的这一份。
+#   (b) 这一遍原先还要求「README 的基准数 == 证据里的基准数」。基准数取决于
+#       机器负载，**重跑必然得到不同的数** —— 于是脚本在一棵**健康的树**上
+#       必然 exit 3（评审实测：README 120.60 µs vs evidence 118.80 µs）。
+#       → 现在用 --skip-bench-cross-check 跳过这一项：**基准数的对账属于
+#         「干净树」检查**（CI 跑在已提交的 evidence/ 上），不属于重生成流程。
+#         重生成流程的职责是「这批日志出自当前源码」，它现在只查这一件事。
+#         基准数变了由本脚本末尾的提示负责提醒人工同步 README。
 python3 tools/check_consistency.py \
   --test-log "$OUT/moon_test.log" \
   --moon-exit "$MOON_TEST_RC" \
-  --expected "$EXPECTED_TESTS"
+  --expected "$EXPECTED_TESTS" \
+  --evidence-dir "$OUT" \
+  --skip-bench-cross-check
+
 
 echo
 echo "==> done. files in $OUT:"
 ls -la "$OUT"
+
+# 基准数随负载浮动：重跑后 README §5 的基准值**必然**与本次记录不同。
+# 这是物理事实，不是缺陷 —— 但 README 必须跟着本次记录同步，否则干净树检查
+# （CI）会因「README 与已提交证据的基准数不一致」而失败。
+echo
+echo "==> NOTE: the benchmark figures in this run are load-dependent and will"
+echo "    differ from the ones currently written in README.md. If you commit"
+echo "    these files, sync README.md's benchmark line with:"
+echo "      grep -E '[0-9.]+ (µs|ms) ±' \"$OUT/bench.log\""
