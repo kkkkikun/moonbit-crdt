@@ -1,13 +1,13 @@
 # moonbit-crdt — environment of the recorded run
 
-date(UTC)   : 2026-11-24 16:43:14
+date(UTC)   : 2026-11-25 02:11:10
 moon        : moon 0.1.20261119 (738607b 2026-11-19) ~/.moon/bin/moon
 python      : Python 3.12.3
 uname       : Linux 6.8.0-147-generic x86_64
 cpu         : 32 cores
-load-average: 51.26 105.17 94.65
-commit      : 4b11da61645dd3a292be08574144f39180ebbfbd
-commit-state: base commit of the checkout this tree was copied from; the working tree may carry uncommitted changes — the code fingerprint below is the authoritative identity of the tree
+load-average: 119.61 120.38 121.09
+commit      : (not a git checkout)
+commit-state: this tree is a copy, not a checkout of the upstream repository — the code fingerprint below is the authoritative identity of the tree
 module      : name="kkkkikun/moonbit-crdt"
-code-fp     : 8d783072aa74b0bffaf59de7c9e8b2e188d8ec4564f4d8f0f0e1cee11c467a34
+code-fp     : f95e3e89ab1277d95100d7e949ab49a447b067a4886c4afbbc952eb2101f8fdf
 tests       : 37 (asserted against the README)

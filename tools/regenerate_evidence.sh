@@ -122,12 +122,15 @@ MOON_TEST_RC=0
   moon test 2>&1
 } > "$OUT/moon_test.log" || MOON_TEST_RC=$?
 
-# --- 硬断言：测试数必须与 README 一致，且全部通过 -------------------------
+# --- 硬断言（第一遍）：套件必须全绿，且测试数与 README 一致 ---------------
 # 判定逻辑集中在 tools/check_consistency.py —— CI 调的是同一个入口。
+# 这一遍**只查套件与声明**：此刻 $OUT 里其它日志还是上一轮的，
+# 「证据是否与当前源码同源」要等全部生成完再查（见文件末尾的第二遍）。
 python3 tools/check_consistency.py \
   --test-log "$OUT/moon_test.log" \
   --moon-exit "$MOON_TEST_RC" \
-  --expected "$EXPECTED_TESTS"
+  --expected "$EXPECTED_TESTS" \
+  --skip-evidence-checks
 
 echo "==> moon bench"
 {
@@ -186,6 +189,14 @@ echo "==> fault injection (the harness must catch known defects)"
   echo "\$ python3 tools/fault_injection.py --project . --work /tmp/c05_fault --cases 800 --seed 20261124"
   python3 tools/fault_injection.py --project . --work /tmp/c05_fault --cases 800 --seed 20261124 2>&1
 } > "$OUT/fault_injection.log"
+
+# --- 硬断言（第二遍）：全部证据必须由当前源码产出，且 README 的数字与之相符 ---
+# 第一遍查的是「套件跑没跑」；这一遍查的是「证据是不是这一版的证据」。
+# 少了这一遍，改一行源码就能带着全部过期日志一起提交（第七轮评审 m-2）。
+python3 tools/check_consistency.py \
+  --test-log "$OUT/moon_test.log" \
+  --moon-exit "$MOON_TEST_RC" \
+  --expected "$EXPECTED_TESTS"
 
 echo
 echo "==> done. files in $OUT:"

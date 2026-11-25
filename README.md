@@ -396,6 +396,7 @@ the two situations that decide this project's correctness:
 | LWW conflict decided **only by the node id** | the exact case a wrong tie-break breaks (defect 8) | **1956 / 2500** cases |
 | LWW conflict decided by the **counter** (same wall, different counter) | the middle layer of the `(wall, counter, node)` order — untested until the fourth review | **1983 / 2500** cases |
 | OR-Set removal that is **resurrectable** — a removal followed by a merge with a replica that still holds the removed dots (the tool measures this at **element** level — see the note below) | the exact case a forgotten removal breaks (defect 7) | **5275** durable removals observed, of which **4360** are resurrectable |
+| OR-Set removal of an element **that no other replica holds** | the case a removal that never propagates breaks — the removal has to reach every replica | **4448** removals |
 | a **negative** value in the traffic | an implementation that accepted a negative increment would be invisible | **366 / 2500** cases |
 | a value **above 26** in the traffic | an implementation that truncated a counter to 32 bits would be invisible | **2124 / 2500** cases |
 
@@ -418,21 +419,24 @@ review found both:
   replica that still holds it. The earlier version counted any removal whose
   element was held by another replica at *some* point in the stream, without
   requiring the merge to happen after the removal — that over-counted by more
-  than four times (343 against a true count of 11 for the same traffic).
+  than four times (343 against a true count of **77** for the same traffic).
 * **It is an element-level proxy, and this is the honest caveat.** The wording
   in the table ("a replica that still holds the removed **dots**") describes
   the *dot-level* truth; what `tools/coverage_report.py` tracks is the
   **element**. The two do not coincide exactly: a merge can bring one dot of
   an element back while the element's other dots stay tombstoned — the
   element-level rule calls that "resurrectable", the dot-level rule does not.
-  On the same traffic (2500 cases/family, seed 20261124) an independent
-  dot-level simulation counts about **4084** resurrectable removals against
-  the element-level **4360** the tool reports — a gap of roughly **7 %**.
-  The number printed in the table is the element-level one, because that is
-  what the tool measures and what `evidence/coverage_report.log` contains.
-  The fourth review's "4.4× over-count" defect is gone; this residual
-  modelling approximation is stated here instead of being left for a reader
-  to discover.
+  On the same traffic (2500 cases/family, seed 20261124) the gap between the
+  two readings is small — of the order of a few percent — so the "4.4×
+  over-count" defect the fourth review found is gone.
+  **This file deliberately does not quote a dot-level number.** A dot-level
+  count is not reproducible from this repository: it depends on how the
+  simulation represents the causal context, and two independent
+  implementations of the same prose definition produced noticeably different
+  numbers (the reviews recorded ≈4084 and ≈4302 on the same traffic).
+  A figure no one in this repository can re-run is not a verifiable figure, so
+  the only number quoted here is the element-level one the tool produces and
+  `evidence/coverage_report.log` contains.
 
 The last two rows of the table exist because the operation grammar used to be
 letters only (`a` = 1 … `z` = 26). That alphabet cannot express a negative
@@ -500,7 +504,22 @@ mechanism and carry no fingerprint — they are history, not evidence about the
 current tree; each archive directory says so in its own README.)
 
 ```
-# code fingerprint: 8d783072aa74b0bffaf59de7c9e8b2e188d8ec4564f4d8f0f0e1cee11c467a34
+# code fingerprint: f95e3e89ab1277d95100d7e949ab49a447b067a4886c4afbbc952eb2101f8fdf
+```
+
+**The fingerprint is now *checked*, not just written.** Until the seventh review
+it was recorded in every log and never compared with anything: editing one line
+of `world.mbt` left all twelve logs stale while every gate stayed green. The
+consistency gate now recomputes the digest of the current tree and refuses to
+pass when a recorded log was produced by a different one:
+
+```
+$ printf '\n# probe\n' >> world.mbt
+$ python3 tools/check_consistency.py --test-log evidence/moon_test.log --moon-exit 0
+error: the recorded evidence and the README disagree:
+  - evidence/bench.log was produced by a different source tree
+    (recorded 8d783072aa74…, current 71116d1e4a03…) — the evidence is stale,
+    re-run tools/regenerate_evidence.sh
 ```
 
 Two runs on the same tree produce the same digest, and any change to any
@@ -541,6 +560,32 @@ error: 'moon test': total=37 passed=36 failed=1
        The suite did not pass — see the log for the failing test.
 ```
 
+**What the checker now checks (all four, since the seventh review).** The
+review found that each of these could be broken without turning any gate red,
+so each now has its own failure:
+
+| # | Check | What it stops |
+|---|---|---|
+| 1 | the suite's count vs. the declared count | a test file silently disappearing |
+| 2 | the README's **prose** declaration vs. the declared count | rewriting the declaration into a form the scan does not see, and letting a fenced *example* stand in for a declaration |
+| 3 | every recorded log's fingerprint vs. **this** tree | shipping stale evidence that was produced by older code |
+| 4 | this README's benchmark and coverage numbers vs. the recorded logs | a table that no longer matches the logs it claims to summarise |
+
+Check 2 is the subtle one: the gate used to scan the whole file, so a sample
+output inside a fenced code block could satisfy it while the real sentence had been
+rewritten. It now ignores fenced blocks and requires a declaration **in the
+prose**; deleting or rewording that sentence is an error:
+
+```
+error: README drift: …/README.md declares no test count in its prose
+       (no '<N> tests' phrase outside a fenced code block).
+       A fenced example is not a declaration: the gate used to accept
+       one, which let the real declaration be rewritten freely.
+```
+
+Checks 3 and 4 are what make the evidence a claim about *this* commit rather
+than about some commit in the same repository.
+
 > `moon.pkg` is **source**, not build output: it declares which imports belong
 > to the `test` section, and it decides whether `moon test` finds the suite.
 > Do not exclude it when copying the tree. (If it *is* missing, both `moon
@@ -556,10 +601,10 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **57.37 µs ± 2.47 µs** |
-| `orset merge` (1000 elements) | **139.67 µs ± 9.63 µs** |
-| `orset add` (1000 sequential adds) | **6.46 ms ± 729.29 µs** |
-| `lwwregister merge` (1000 keys) | **75.87 µs ± 2.62 µs** |
+| `gcounter merge` (1000 entries) | **120.60 µs ± 6.71 µs** |
+| `orset merge` (1000 elements) | **316.24 µs ± 30.30 µs** |
+| `orset add` (1000 sequential adds) | **15.07 ms ± 1.98 ms** |
+| `lwwregister merge` (1000 keys) | **154.35 µs ± 7.50 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the
@@ -575,10 +620,11 @@ verbatim from `evidence/bench.log`; regenerate them with `bash tools/regenerate_
 > The load the machine was under during this particular run is recorded in
 > `evidence/environment.txt` as `load-average`. The server is shared with
 > other people's work; this run was taken while its load average was around
-> 51, and the same code measured on the same tree at a load average above 140
-> came out roughly twice as slow. **If you re-run
+> **120**, and the same code measured on the same tree at a load average around
+> 51 came out roughly twice as fast. **If you re-run
 > `bash tools/regenerate_evidence.sh`, update these four numbers in the same
-> commit**, or the README will no longer match `evidence/bench.log`.
+> commit**, or the README will no longer match `evidence/bench.log` — the
+> consistency gate in `tools/check_consistency.py` now checks exactly that.
 
 
 The OR-Set is the most expensive type to merge, and that is inherent: merging
