@@ -1,16 +1,16 @@
 # moon bench
-# code fingerprint: 2093e29ee869a6644b3bb6d8d2eb455ee7f15ebc050d59e2a2eae0b9b28b2462
+# code fingerprint: 4881cdc477b58f09c77291df661247cf34e6ee8bc2c9fb61f7d415e0555d3ba8
 $ moon bench
 [kkkkikun/moonbit-crdt] bench crdt_bench_test.mbt:35 ("bench gcounter merge (1000 entries)") ok
 time (mean ± σ)         range (min … max) 
- 121.81 µs ±   8.35 µs   114.77 µs … 137.59 µs  in 10 ×    791 runs
+ 119.46 µs ±   6.20 µs   112.81 µs … 129.42 µs  in 10 ×    836 runs
 [kkkkikun/moonbit-crdt] bench crdt_bench_test.mbt:45 ("bench orset merge (1000 elements)") ok
 time (mean ± σ)         range (min … max) 
- 318.06 µs ±  25.17 µs   291.09 µs … 362.82 µs  in 10 ×    334 runs
+ 299.85 µs ±  21.49 µs   281.36 µs … 338.55 µs  in 10 ×    337 runs
 [kkkkikun/moonbit-crdt] bench crdt_bench_test.mbt:55 ("bench orset add (1000 sequential adds)") ok
 time (mean ± σ)         range (min … max) 
-  14.43 ms ±   1.48 ms    12.79 ms …  16.92 ms  in 10 ×      8 runs
+  15.19 ms ±   1.72 ms    13.55 ms …  18.46 ms  in 10 ×      8 runs
 [kkkkikun/moonbit-crdt] bench crdt_bench_test.mbt:63 ("bench lwwregister merge (1000 keys)") ok
 time (mean ± σ)         range (min … max) 
- 152.11 µs ±   8.81 µs   143.09 µs … 165.73 µs  in 10 ×    693 runs
+ 153.61 µs ±   7.60 µs   147.26 µs … 168.19 µs  in 10 ×    676 runs
 Total tests: 4, passed: 4, failed: 0.

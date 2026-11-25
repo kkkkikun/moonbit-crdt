@@ -1,8 +1,8 @@
 # differential coverage report
-# code fingerprint: 2093e29ee869a6644b3bb6d8d2eb455ee7f15ebc050d59e2a2eae0b9b28b2462
+# code fingerprint: 4881cdc477b58f09c77291df661247cf34e6ee8bc2c9fb61f7d415e0555d3ba8
 # how much of the interesting behaviour the generated traffic actually reaches
 $ python3 tools/coverage_report.py --cases 2500 --seed 20261124 --max-ops 12
-# code fingerprint: 2093e29ee869a6644b3bb6d8d2eb455ee7f15ebc050d59e2a2eae0b9b28b2462
+# code fingerprint: 4881cdc477b58f09c77291df661247cf34e6ee8bc2c9fb61f7d415e0555d3ba8
 == differential coverage report ==
 seed=20261124 cases/family=2500 max-ops=12
 (the stream below is the one the harness compares — both call fuzz_diff.generate_cases())

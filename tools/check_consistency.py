@@ -162,6 +162,20 @@ BREAKDOWN_RE = re.compile(
     + r"(\d+)\s+" + BREAKDOWN_CATEGORY + r"\b\s*,\s*"
     + r"(\d+)\s+" + BREAKDOWN_CATEGORY + r"\b"
 )
+# Round nine (n1): the whitelist above means a **renamed** category makes
+# BREAKDOWN_RE match nothing at all — the loop body then never runs and the
+# check is **silently disabled** (it is not a failure, it is a no-op).
+# Fix: **fail closed**.  A generic triple detector finds "N word, N word,
+# N word" whatever the words are; if such a triple exists but the whitelist
+# pattern matched none, the breakdown's categories are outside the whitelist
+# and the sum is **not verified** — that must be reported, not ignored.
+# The generic pattern keeps the same "no thousands separator" guard, so the
+# prose "18,000 cases, 0 mismatches" still cannot trigger it.
+GENERIC_BREAKDOWN_RE = re.compile(
+    r"(?<![\d,])(\d+)\s+([A-Za-z][A-Za-z_-]*)\b\s*,\s*"
+    r"(\d+)\s+([A-Za-z][A-Za-z_-]*)\b\s*,\s*"
+    r"(\d+)\s+([A-Za-z][A-Za-z_-]*)\b"
+)
 
 
 def project_root() -> Path:
@@ -487,12 +501,32 @@ def check_readme_numbers(readme_text: str, root: Path,
     # Round eight (m3): the old code took only the **first** match, so a
     # correct triple placed early in the document masked a wrong one later on.
     # Every triple is checked now.
-    for m in BREAKDOWN_RE.finditer(prose):
+    matched = list(BREAKDOWN_RE.finditer(prose))
+    for m in matched:
         nums = [int(m.group(i)) for i in (1, 2, 3)]   # the three counts
         if sum(nums) != expected_tests():
             problems.append(
                 f"the README's test breakdown {nums} sums to {sum(nums)}, "
                 f"but the project declares {expected_tests()} tests"
+            )
+    # Round nine (n1): **fail closed**.  If the whitelist pattern matched
+    # nothing but a generic "N word, N word, N word" triple exists, the
+    # breakdown's category names are outside the whitelist and the sum was
+    # never checked — renaming a category must not silently disable the gate.
+    if not matched:
+        generic = list(GENERIC_BREAKDOWN_RE.finditer(prose))
+        if generic:
+            shown = " | ".join(repr(m.group(0)) for m in generic[:3])
+            problems.append(
+                "the README's test breakdown uses category names outside the "
+                f"whitelist ({BREAKDOWN_CATEGORY}): found {shown} — "
+                "the breakdown's sum is therefore NOT verified; either restore the "
+                "documented category names or extend the whitelist deliberately"
+            )
+        else:
+            problems.append(
+                "the README no longer contains a test-suite breakdown — the "
+                "declared count can no longer be cross-checked against a sum"
             )
 
     return problems
