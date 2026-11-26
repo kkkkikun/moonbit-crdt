@@ -8,6 +8,58 @@ The project is **not published to the MoonBit registry yet** (see `README.md`
 made at — the commit history, the issues and the pull requests carry the rest
 of the update record.
 
+## Unreleased — the eleventh- and twelfth-review fixes (2026-11-26)
+
+Fixes for the findings of the **eleventh** and **twelfth** independent
+reviews (`qa/independent_review_round11.md` and
+`qa/independent_review_round12.md` in the project workspace). The one **S**
+finding — the public history still contains commits signed with a real name —
+is an outbound action and is tracked outside this file.
+
+### The breakdown guard no longer depends on how the sentence is written (m-8)
+
+Round eleven found that the guard which cross-checks the README's
+`16 unit, 10 property, 11 regression` breakdown against the declared test
+count could be **switched off by rewriting the sentence**: with the
+parentheses changed to `16 unit + 10 property + 12 regression` (or `;`, or
+`and`) neither the whitelist pattern nor the generic detector matched it, so
+the sum of the breakdown was never verified at all — and a legal triple
+planted elsewhere kept the fail-closed branch quiet.
+
+The guard now **anchors** on the sentence that declares the count
+(`N tests in total (...)`), takes the three numbers out of the anchor and
+adds them up, whatever the separators are. If the anchor is missing or does
+not list exactly three counts, the guard **fails closed**.
+
+### The guard accepts every way of spelling the breakdown, and stops
+### mistaking prose for a breakdown (m-5, m-6)
+
+The whitelist probe now accepts `,` `+` `;` `and` `、` `，` as separators and
+`unit tests` / `property tests` / `regression tests` as category names, so a
+*second*, contradicting breakdown written in another style is checked as well.
+
+The generic probe used to report **any** three numbers followed by three words
+as a broken breakdown, which turned ordinary prose — "We ran 5 benchmarks, 3
+suites and 2 oracles during development." — into a false positive. A triple
+whose category names are outside the whitelist is now reported only when it
+sits in a sentence that declares a test count.
+
+### The negative regression can finally tell "fixed" from "not fixed" (m-8 / M-2)
+
+`tools/consistency_selftest.py` runs the guard over mutated copies of the
+README and requires every mutation to be caught. Its decoy is now a **legal**
+triple (12 unit, 14 property, 11 regression — sum 37), so a mutation can only
+be reported by the rule under test, and the mutations that change the
+sentence's shape have to be reported by the **anchor** rule specifically.
+Copied onto a tree without that rule the selftest **fails** (exit 1) — the
+previous version passed on a vulnerable tree as well and therefore proved
+nothing. CI runs it on every push.
+
+The evidence was regenerated on the build server after these changes
+(`tools/regenerate_evidence.sh`, exit 0), so the recorded fingerprints match
+the current tree again. Benchmark figures are load-dependent and differ per
+run — that is stated in `README.md` §4.7.
+
 ## Unreleased — the ninth- and tenth-review fixes (2026-11-25)
 
 Fixes for the **n1** finding of the ninth independent review and the **n3**

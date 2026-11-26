@@ -78,6 +78,16 @@ jobs:
           moon test 2>&1 | tee "$RUNNER_TEMP/moon_test.log" || true
           python3 tools/check_consistency.py --test-log "$RUNNER_TEMP/moon_test.log"
 
+      # The gate itself has to be able to **fail**.  A green consistency check
+      # only means something if the check can go red on a doctored README.
+      # `tools/consistency_selftest.py` runs the gate over mutated READMEs and
+      # requires the breakdown rule to catch every one of them (round eleven's
+      # m-8 / round twelve's M-2: the previous version of this selftest passed
+      # on a *vulnerable* tree as well, so it proved nothing).
+      - name: Consistency gate negative regression (the gate must be able to fail)
+        run: |
+          python3 tools/consistency_selftest.py
+
       - name: Code fingerprint selftest
         run: |
           python3 tools/provenance.py --selftest

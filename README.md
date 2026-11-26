@@ -617,6 +617,35 @@ than about some commit in the same repository.
 > Do not exclude it when copying the tree. (If it *is* missing, both `moon
 > check` and `moon test` fail with exit 255 — they do not pass silently.)
 
+### 4.8 The breakdown cross-check — and the regression that proves it can fail
+
+§4.1 states the breakdown inside the sentence that declares the test count.
+The gate checks that the three numbers of that breakdown add up to the number
+the same sentence declares — and it does **not** depend on how the sentence is
+written. Two independent probes do the work:
+
+* the **anchor probe** (`ANCHOR_BREAKDOWN_RE`) reads the numbers out of the
+  `N tests in total (...)` anchor itself, so re-writing the parentheses — with
+  `+`, with `;`, or with `and` instead of commas — no longer hides the sum;
+* the **whitelist probe** reads every three-number / three-category triple in
+  the prose: commas, `+`, `;`, `and`, `、` and `，` all count as separators, and
+  a two-word category name (`unit tests`) counts as a category — so a
+  *second*, contradicting breakdown written in another style is checked too.
+
+A triple whose category names are outside the whitelist
+(`unit`/`property`/`regression`/`tests`) is reported **only** when it sits in a
+sentence that declares a test count: ordinary prose that happens to contain
+three numbers and three nouns is not a breakdown and is not an error.
+
+`tools/consistency_selftest.py` is the negative regression: it runs the gate
+over mutated copies of this README and requires every mutation to be caught.
+Its decoy is a **legal** triple (it adds up to the declared count), so a
+mutation can only be reported by the rule under test; and the mutations that
+change the sentence's *shape* have to be reported by the **anchor** rule
+specifically. Copied onto a tree without that rule the selftest **fails**
+(exit 1) — which is what makes it a regression test instead of a tautology.
+CI runs it on every push.
+
 ---
 
 ## 5. Benchmarks
@@ -627,10 +656,10 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **110.89 µs ± 19.01 µs** |
-| `orset merge` (1000 elements) | **326.60 µs ± 20.93 µs** |
-| `orset add` (1000 sequential adds) | **14.98 ms ± 1.43 ms** |
-| `lwwregister merge` (1000 keys) | **149.22 µs ± 18.88 µs** |
+| `gcounter merge` (1000 entries) | **132.63 µs ± 12.47 µs** |
+| `orset merge` (1000 elements) | **311.77 µs ± 53.27 µs** |
+| `orset add` (1000 sequential adds) | **15.48 ms ± 1.66 ms** |
+| `lwwregister merge` (1000 keys) | **156.41 µs ± 8.73 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the
@@ -766,6 +795,7 @@ moonbit-crdt/
 │   ├── coverage_report.py       measures whether the traffic reaches the branches
 │   ├── provenance.py            computes the code fingerprint every log carries
 │   ├── check_consistency.py     the one test-count / README consistency gate
+│   ├── consistency_selftest.py  negative regression: the gate must be able to fail
 │   └── regenerate_evidence.sh   regenerates this round's raw logs in evidence/
 └── evidence/                    raw logs of the runs quoted above
     ├── bench.log

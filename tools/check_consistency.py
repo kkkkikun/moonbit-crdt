@@ -152,15 +152,27 @@ EVIDENCE_FILES = (
 # numbers must be separated from them by whitespace — a thousands separator
 # cannot satisfy that.
 BREAKDOWN_CATEGORY = r"(?:unit|property|regression|tests?)"
+# 第十二轮 m-6：类别名可以写成两词（`unit tests` / `property tests` /
+# `regression tests`），只认单词会让这类分解**整条看不见**（第十二轮复评的
+# 变异体 F 就是这一类）。
+# NOTE: the whole phrase is wrapped in a non-capturing group: an alternation
+# that is *not* grouped binds to the whole pattern, so `A|B` spliced into a
+# longer regex silently turns the rest of the pattern into the second branch.
+BREAKDOWN_CATEGORY_PHRASE = (
+    r"((?:unit|property|regression)(?:\s+tests?)?|tests?)"
+)
+# 第十二轮 m-5/m-6：分解的**分隔符**与**类别名的写法**都不再决定判据能否命中。
+# 分隔符集合：`,` `+` `;` `、` `，` `and`。
+BREAKDOWN_SEP = r"(?:,|\+|;|、|，|\band\b)"
 # NOTE: every line below ends with an explicit "+".  Relying on Python's
 # implicit adjacent-string concatenation across a line that ends in a
 # string *expression* silently drops the following lines — that is how the
 # first version of this pattern ended up matching only part of a triple
 # (and how a negative test of the gate passed for the wrong reason).
 BREAKDOWN_RE = re.compile(
-    r"(?<![\d,])(\d+)\s+" + BREAKDOWN_CATEGORY + r"\b\s*,\s*"
-    + r"(\d+)\s+" + BREAKDOWN_CATEGORY + r"\b\s*,\s*"
-    + r"(\d+)\s+" + BREAKDOWN_CATEGORY + r"\b"
+    r"(?<![\d,])(\d+)\s+" + BREAKDOWN_CATEGORY_PHRASE + r"\b\s*" + BREAKDOWN_SEP + r"\s*"
+    + r"(\d+)\s+" + BREAKDOWN_CATEGORY_PHRASE + r"\b\s*" + BREAKDOWN_SEP + r"\s*"
+    + r"(\d+)\s+" + BREAKDOWN_CATEGORY_PHRASE + r"\b"
 )
 # Round nine (n1): the whitelist above means a **renamed** category makes
 # BREAKDOWN_RE match nothing at all — the loop body then never runs and the
@@ -171,11 +183,38 @@ BREAKDOWN_RE = re.compile(
 # and the sum is **not verified** — that must be reported, not ignored.
 # The generic pattern keeps the same "no thousands separator" guard, so the
 # prose "18,000 cases, 0 mismatches" still cannot trigger it.
-GENERIC_BREAKDOWN_RE = re.compile(
-    r"(?<![\d,])(\d+)\s+([A-Za-z][A-Za-z_-]*)\b\s*,\s*"
-    r"(\d+)\s+([A-Za-z][A-Za-z_-]*)\b\s*,\s*"
-    r"(\d+)\s+([A-Za-z][A-Za-z_-]*)\b"
+# 第十一轮 m-8：分解的**句式是可改的**，判据不能依赖句式。
+# 原文的分解是 `**37 tests in total** (16 unit, 10 property, 11 regression)`；
+# 把括号内的分隔符改成 `+` / `;` / `and`，原判据就再也匹配不到 → 分解和完全不被校验。
+# 因此：**锚定**在「N tests in total (...)」这句话上，从锚点里取三类数目再求和。
+ANCHOR_BREAKDOWN_RE = re.compile(
+    r"(?P<total>\d+)\s+tests?\s+in\s+total[\*\s:：]*\((?P<inner>[^)]*)\)",
+    re.IGNORECASE,
 )
+# 锚点括号内：三个「数 + 类别名」（类别名允许拉丁字母或中文）
+ANCHOR_ITEM_RE = re.compile(r"(\d+)\s*([A-Za-z\u4e00-\u9fff][\w\u4e00-\u9fff\-]*)")
+
+GENERIC_CATEGORY_PHRASE = (
+    r"([A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff-]*"
+    r"(?:\s+[A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff-]*)?)"
+)
+GENERIC_BREAKDOWN_RE = re.compile(
+    # 第十一轮 m-8：分隔符放宽到 `,` `+` `;` `and` `、` `，`（原来只认逗号），
+    # 类别名允许拉丁字母或中文 —— 否则「改句式」就能让三元组整条漏检。
+    # 第十二轮 m-6：类别名放宽到**最多两个词**（`unit tests` 这种写法），
+    # 否则多词类别名的分解对两个探测都不可见。
+    r"(?<![\d,])(\d+)\s+" + GENERIC_CATEGORY_PHRASE + r"\b\s*"
+    + BREAKDOWN_SEP + r"\s*"
+    r"(\d+)\s+" + GENERIC_CATEGORY_PHRASE + r"\b\s*"
+    + BREAKDOWN_SEP + r"\s*"
+    r"(\d+)\s+" + GENERIC_CATEGORY_PHRASE + r"\b"
+)
+# 第十二轮 m-5：通用探测会把**任何**「三个数 + 三个词」都当成分解，
+# 于是一句普通散文（例如 "We ran 5 benchmarks, 3 suites and 2 oracles during
+# development."）被报成「分解用错了类别名」—— 这是**误报**，不是缺陷检出。
+# 修法：只有当这个三元组**落在声明了测试数的句子里**时，才按
+# 「分解的类别名越界」报错（fail closed）；纯散文里的三元组不阻断。
+TEST_COUNT_DECL_RE = re.compile(r"\b\d+\s+tests?\b", re.IGNORECASE)
 
 
 def project_root() -> Path:
@@ -422,6 +461,37 @@ def check_evidence_manifest(evidence_dir: Path) -> list[str]:
     return problems
 
 
+def triple_signature(match: re.Match) -> tuple[str, ...]:
+    """The **content** of a "N word, N word, N word" triple.
+
+    Both the whitelist pattern and the generic pattern number their groups
+    the same way (1/3/5 = the counts, 2/4/6 = the category names), so the
+    signature of the same text is identical in both — that is what makes
+    "is this generic triple covered by a whitelist triple?" decidable.
+    """
+    return tuple(match.group(i) for i in range(1, 7))
+
+
+def sentence_around(text: str, start: int, end: int) -> str:
+    """The sentence of ``text`` that contains the span ``[start, end)``.
+
+    Sentences end at ``.`` / ``!`` / ``?``.  The span is deliberately taken
+    on the raw text (not on a stripped copy) so that the offsets of a regex
+    match stay valid.
+    """
+    left = -1
+    for ch in ".!?":
+        pos = text.rfind(ch, 0, start)
+        if pos > left:
+            left = pos
+    right = len(text)
+    for ch in ".!?":
+        pos = text.find(ch, end)
+        if pos != -1 and pos < right:
+            right = pos
+    return text[left + 1:right]
+
+
 def check_readme_numbers(readme_text: str, root: Path,
                          evidence_dir: Path | None = None,
                          skip_bench_cross_check: bool = False) -> list[str]:
@@ -497,13 +567,48 @@ def check_readme_numbers(readme_text: str, root: Path,
             "evidence/coverage_report.log is missing — coverage figures cannot be checked"
         )
 
+    # --- 第十一轮 m-8：锚定解析（判据不再依赖「逗号句式」）---
+    #
+    # 逃逸原理：把分解改写成 `16 unit + 10 property + 11 regression` 之类，
+    # 原 BREAKDOWN_RE / GENERIC_BREAKDOWN_RE 都匹配不到 → 分解和**根本没被校验**；
+    # 再在别处放一个合法的白名单三元组做诱饵，`matched` 非空，fail-closed 分支也不触发。
+    # 现在：从「N tests in total (...)」锚点取三类数目求和，句式怎么改都拦得住。
+    anchors = list(ANCHOR_BREAKDOWN_RE.finditer(prose))
+    if not anchors:
+        problems.append(
+            "the README no longer contains the 'N tests in total (...)' breakdown "
+            "anchor - the declared count can no longer be cross-checked against "
+            "the three-way sum (fail closed)"
+        )
+    for a in anchors:
+        total = int(a.group("total"))
+        items = ANCHOR_ITEM_RE.findall(a.group("inner"))
+        if len(items) != 3:
+            problems.append(
+                "the README's breakdown anchor "
+                f"{a.group(0)[:70]!r} does not list exactly three counts"
+            )
+            continue
+        nums = [int(n) for n, _ in items]
+        if sum(nums) != total:
+            problems.append(
+                f"the README's test breakdown {nums} sums to {sum(nums)}, "
+                f"but the same sentence declares {total} tests"
+            )
+        if total != expected_tests():
+            problems.append(
+                f"the README's breakdown anchor declares {total} tests, "
+                f"but the project declares {expected_tests()} tests"
+            )
+
     # --- the suite breakdown must add up to the declared count ---
     # Round eight (m3): the old code took only the **first** match, so a
     # correct triple placed early in the document masked a wrong one later on.
     # Every triple is checked now.
     matched = list(BREAKDOWN_RE.finditer(prose))
     for m in matched:
-        nums = [int(m.group(i)) for i in (1, 2, 3)]   # the three counts
+        # 第十二轮：类别名现在**也是捕获组**，所以三个数是第 1/3/5 组。
+        nums = [int(m.group(i)) for i in (1, 3, 5)]   # the three counts
         if sum(nums) != expected_tests():
             problems.append(
                 f"the README's test breakdown {nums} sums to {sum(nums)}, "
@@ -521,31 +626,39 @@ def check_readme_numbers(readme_text: str, root: Path,
     # ran, and the real breakdown's sum went **completely unchecked**
     # (review mutants N1-e and N1-e2 both exited 0).
     # Fix: judge **every generic triple on its own**.  Each generic match must
-    # be covered by a whitelist match at the same position (same span and same
-    # three numbers).  A generic triple that the whitelist does not cover is a
-    # triple whose categories are outside the whitelist → its sum is not
-    # verified → that is reported.  A decoy therefore cannot hide the real
-    # breakdown any more: the real one is itself a generic triple, and it is
-    # judged on its own merits.
+    # be covered by a whitelist match with the **same content** (the same three
+    # counts and the same three category names — see `triple_signature`).
+    # A generic triple that the whitelist does not cover is a triple whose
+    # categories are outside the whitelist → its sum is not verified → that is
+    # reported.  A decoy therefore cannot hide the real breakdown any more:
+    # the real one is itself a generic triple, and it is judged on its own
+    # merits.
     generic = list(GENERIC_BREAKDOWN_RE.finditer(prose))
-    covered = {(m.start(), m.end()) for m in matched}
-    uncovered = [
-        m for m in generic
-        if not any(m.start() == s and m.end() == e for (s, e) in covered)
+    # 第十二轮 m-6：覆盖关系按**三元组的内容**（三个数 + 三个类别名）判定，
+    # 不再按字符区间判定 —— 两个模式的类别名写法一旦不同（单词 vs 两词），
+    # 区间就会错位，于是合法的分解会被误报成「类别名越界」。
+    covered = {triple_signature(m) for m in matched}
+    uncovered = [m for m in generic if triple_signature(m) not in covered]
+    # 第十二轮 m-5：只有**落在声明了测试数的句子里**的三元组才算
+    # 「分解」；纯散文里的三元组（"5 benchmarks, 3 suites and 2 oracles"）
+    # 不阻断 —— 那不是缺陷，是误报。
+    suspicious = [
+        m for m in uncovered
+        if TEST_COUNT_DECL_RE.search(sentence_around(prose, m.start(), m.end()))
     ]
-    if uncovered:
-        shown = " | ".join(repr(m.group(0)) for m in uncovered[:3])
+    if not matched:
+        # No whitelist triple at all: the breakdown is gone entirely.
+        problems.append(
+            "the README no longer contains a test-suite breakdown — the "
+            "declared count can no longer be cross-checked against a sum"
+        )
+    elif suspicious:
+        shown = " | ".join(repr(m.group(0)) for m in suspicious[:3])
         problems.append(
             "the README's test breakdown uses category names outside the "
             f"whitelist ({BREAKDOWN_CATEGORY}): found {shown} — "
             "the breakdown's sum is therefore NOT verified; either restore the "
             "documented category names or extend the whitelist deliberately"
-        )
-    elif not matched:
-        # No generic triple at all: the breakdown is gone entirely.
-        problems.append(
-            "the README no longer contains a test-suite breakdown — the "
-            "declared count can no longer be cross-checked against a sum"
         )
 
     return problems
