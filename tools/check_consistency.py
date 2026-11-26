@@ -162,8 +162,16 @@ BREAKDOWN_CATEGORY_PHRASE = (
     r"((?:unit|property|regression)(?:\s+tests?)?|tests?)"
 )
 # 第十二轮 m-5/m-6：分解的**分隔符**与**类别名的写法**都不再决定判据能否命中。
-# 分隔符集合：`,` `+` `;` `、` `，` `and`。
-BREAKDOWN_SEP = r"(?:,|\+|;|、|，|\band\b)"
+# 第十六轮 m-6：分隔符集合**补齐**。
+#
+# 旧集合（`,` `+` `;` `、` `，` `and`）不含 `/`、`&`、破折号（– — ~），
+# 于是「16 unit test cases / 11 property test cases / 11 regression test cases」
+# 这类写法**整条不可见** ⇒ 一个和值矛盾的分解可以**整条逃逸**（实测门禁 exit 0）。
+# 分隔符是「三元组能不能被看见」的**唯一入口**：入口不认，写法一改就看不见。
+#
+# `&` 排除 HTML 实体（`&mdash;` / `&#8212;` 之类），否则实体本身会被
+# 当成分隔符，把无关的散文连成一个假的「三元组」。
+BREAKDOWN_SEP = r"(?:,|\+|;|、|，|\band\b|/|&(?!#\d+;|[A-Za-z]+;)|–|—|~)"
 # NOTE: every line below ends with an explicit "+".  Relying on Python's
 # implicit adjacent-string concatenation across a line that ends in a
 # string *expression* silently drops the following lines — that is how the
@@ -194,9 +202,39 @@ ANCHOR_BREAKDOWN_RE = re.compile(
 # 锚点括号内：三个「数 + 类别名」（类别名允许拉丁字母或中文）
 ANCHOR_ITEM_RE = re.compile(r"(\d+)\s*([A-Za-z\u4e00-\u9fff][\w\u4e00-\u9fff\-]*)")
 
+# 第十六轮 m-5：类别名的**最后一个词**不得是功能词。
+#
+# 旧模式（最多三个词）是**贪婪**的，而三元组的**最后一项后面没有分隔符约束**
+# （最后一项不需要分隔符），于是散文尾词被吞进类别名：
+# 「… 1 test batch during development.」的第三个类别名被抽成
+# 「test batch during」—— 诊断里把散文尾词当成了类别名。
+#
+# 修法：类别名的最后一个词若是功能词（介词 / 连词 / 助动词 / 代词 …），
+# 贪婪匹配就回退一格，尾词留在三元组之外。功能词表是**封闭**的：
+# 不在表里的词照旧可以当类别名（判据不因未登记的词而漏检）。
+CATEGORY_WORD = r"[A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff-]*"
+CATEGORY_STOPWORDS = (
+    "a", "about", "above", "across", "after", "against", "along", "among",
+    "and", "any", "are", "as", "at", "be", "been", "being", "below", "between",
+    "both", "but", "by", "can", "could", "did", "do", "does", "during", "each",
+    "either", "for", "from", "had", "has", "have", "he", "her", "here", "his",
+    "how", "i", "if", "in", "including", "into", "is", "it", "its", "may",
+    "might", "must", "neither", "no", "nor", "not", "of", "off", "on", "once",
+    "only", "or", "other", "our", "out", "over", "own", "per", "rather",
+    "same", "shall", "she", "should", "since", "so", "some", "such", "than",
+    "that", "the", "their", "them", "then", "there", "these", "they", "this",
+    "those", "through", "throughout", "to", "too", "under", "until", "up",
+    "upon", "us", "very", "via", "was", "we", "were", "what", "when", "where",
+    "which", "while", "who", "whom", "whose", "why", "will", "with", "within",
+    "without", "would", "you", "your",
+)
+CATEGORY_NONSTOP_WORD = (
+    r"(?!(?:" + "|".join(CATEGORY_STOPWORDS) + r")\b)" + CATEGORY_WORD
+)
+# 1–3 个词；**最后一个词**必须不是功能词。
 GENERIC_CATEGORY_PHRASE = (
-    r"([A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff-]*"
-    r"(?:\s+[A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff-]*){0,2})"
+    r"(" + CATEGORY_WORD + r"(?:\s+" + CATEGORY_WORD + r"){0,1}\s+"
+    + CATEGORY_NONSTOP_WORD + r"|" + CATEGORY_NONSTOP_WORD + r")"
 )
 GENERIC_BREAKDOWN_RE = re.compile(
     # 第十一轮 m-8：分隔符放宽到 `,` `+` `;` `and` `、` `，`（原来只认逗号），
@@ -225,16 +263,32 @@ GENERIC_BREAKDOWN_RE = re.compile(
 # 不亲和的三元组仍然只在「同一句里声明了测试数」时才被追问 ——
 # 那条老路子覆盖的是「同一句话自相矛盾」，与本条不重叠。
 #
-# ⚠️ 覆盖边界（README §4.8 照此写）：亲和性是**词形**判据，
-# 因此「把 unit/property/regression 整个换掉、同时和值仍然矛盾」的分解
-# 只有在**同一句里声明了测试数**时才会被抓住。
-BREAKDOWN_AFFINITY_RE = re.compile(
-    r"\b(?:units?|propert(?:y|ies)|regressions?|tests?|cases?)\b"
-    r"|单元|属性|回归|测试|用例",
-    re.IGNORECASE,
+# 第十六轮 m-5：**「亲和」被推翻，判据改成「类别族」。**
+#
+# 第十四轮的判据只问「三个类别名里**有没有一个**含 unit/property/regression/
+# test/case」，这是**词形**判据，于是下面这些**语义合法**的散文被当成了分解
+# （实测门禁 exit 3）：
+#   「3 case classes, 2 case groups and 1 case family」
+#   「3 unit variants, 2 unit flavors and 1 unit image」
+#   「3 regression jobs, 2 regression stages and 1 regression slot」
+#   「3 单元测试, 2 单元测试 and 1 单元测试」
+# 它们的共同点：**三个类别名同族**（case/case/case、unit/unit/unit、
+# regression/regression/regression、unit/unit/unit）。分解的三类本来就是
+# **三类不同的东西**，同族就不是分解。
+#
+# 新判据：每个类别名归约到一个**类别族标签**，三个标签**互不相同** ⇒ 是分解。
+#   「16 unit test cases, 11 property test cases, 11 regression test cases」
+#     → unit / property / regression ⇒ 三族互异 ⇒ 是分解 ⇒ 报（m-1 的鉴别力保住）；
+#   「16 benchmarks, 11 suites and 11 oracles」→ 没有族标签 ⇒ 不是分解。
+CATEGORY_KINDS = (
+    ("unit", re.compile(r"\bunits?\b|单元", re.IGNORECASE)),
+    ("property", re.compile(r"\bpropert(?:y|ies)\b|属性", re.IGNORECASE)),
+    ("regression", re.compile(r"\bregressions?\b|回归", re.IGNORECASE)),
+    ("test", re.compile(r"\btests?\b|测试", re.IGNORECASE)),
+    ("case", re.compile(r"\bcases?\b|用例", re.IGNORECASE)),
 )
 # 第十四轮 m-2：这一条**不再**是判据的主条件，只在「同一句里声明了测试数」
-# 时用于追问不亲和的三元组（见上面 BREAKDOWN_AFFINITY_RE 的说明）。
+# 时用于追问非分解的三元组（见上面 CATEGORY_KINDS 的说明）。
 TEST_COUNT_DECL_RE = re.compile(r"\b\d+\s+tests?\b", re.IGNORECASE)
 
 
@@ -242,7 +296,7 @@ TEST_COUNT_DECL_RE = re.compile(r"\b\d+\s+tests?\b", re.IGNORECASE)
 # 第十四轮 m-3：诊断的**文案**与**判据身份**分离。
 #
 # 负向回归（tools/consistency_selftest.py）原来断言的是报错**文案**
-# （`the same sentence declares` 之类）。于是任何一次无害的措辞重构都会让
+# （一句固定的话）。于是任何一次无害的措辞重构都会让
 # CI 与统一门禁变红 —— 而面对红色的最省事做法就是**把断言改松**
 # （例如只断言「有 ≥1 条问题」），那正好把鉴别力重新抽掉：
 # 这是第十二轮 M-2「恒真回归」的复发路径。
@@ -250,6 +304,13 @@ TEST_COUNT_DECL_RE = re.compile(r"\b\d+\s+tests?\b", re.IGNORECASE)
 # 修法：每条诊断带一个**稳定的机器码**（`anchor-sum` / `anchor-missing` /
 # `whitelist-sum` / `category-sum` / `declared-sum` / `breakdown-missing`），
 # 自测按机器码判定，**不**按文案判定。文案可以自由改写。
+#
+# 第十六轮 m-7：**这条注释本身也不再是任何探针的锚点**。
+# 第十四轮的措辞探针硬编码了一句报错文案，而同一句又写在这里的注释里 ——
+# 于是「只改消息」会让探针空转却仍报 PASS，「连注释一起改」会让探针判 FAIL
+# ⇒ CI 假红。第十六轮起，探针的锚点是**结构**（`problem(...)` 调用的位置、
+# 注释 token、模块级常量），不是任何一句可编辑的文本：
+# 所以「改文案」与「改注释」都**不会**让自测失败。
 #
 # `Problem` 是 `str` 的子类：现有的打印与比较代码一行都不用改，
 # 而 `.code` 给出与文案无关的稳定句柄。
@@ -532,6 +593,12 @@ def sentence_around(text: str, start: int, end: int) -> str:
     on the raw text (not on a stripped copy) so that the offsets of a regex
     match stay valid.
     """
+    s0, s1 = sentence_span(text, start, end)
+    return text[s0:s1]
+
+
+def sentence_span(text: str, start: int, end: int) -> tuple[int, int]:
+    """The offsets ``(begin, stop)`` of the sentence containing ``[start, end)``."""
     left = -1
     for ch in ".!?":
         pos = text.rfind(ch, 0, start)
@@ -542,7 +609,60 @@ def sentence_around(text: str, start: int, end: int) -> str:
         pos = text.find(ch, end)
         if pos != -1 and pos < right:
             right = pos
-    return text[left + 1:right]
+    return left + 1, right
+
+
+def category_kinds(cats: list[str]) -> list[str | None]:
+    """每个类别名归约到一个**类别族**标签；没有族标签的返回 ``None``。
+
+    族标签按 `CATEGORY_KINDS` 的顺序取第一个命中的：
+    unit → property → regression → test → case（中文：单元 / 属性 / 回归 /
+    测试 / 用例）。于是「unit test cases」归到 unit，「case classes」归到 case。
+    """
+    out: list[str | None] = []
+    for cat in cats:
+        label = None
+        for name, rx in CATEGORY_KINDS:
+            if rx.search(cat):
+                label = name
+                break
+        out.append(label)
+    return out
+
+
+def is_suite_breakdown(cats: list[str]) -> bool:
+    """这三个类别名是不是**测试套件的分解**？
+
+    判据（第十六轮 m-5）：三个类别名**各自**带一个类别族标签，且三个标签
+    **互不相同** —— 分解的三类本来就是三类不同的东西。
+
+    同族的三元组不是分解：
+      「3 case classes, 2 case groups and 1 case family」  → case/case/case
+      「3 unit variants, 2 unit flavors and 1 unit image」  → unit/unit/unit
+      「3 单元测试, 2 单元测试 and 1 单元测试」              → unit/unit/unit
+    没有族标签的三元组也不是分解：
+      「16 benchmarks, 11 suites and 11 oracles」            → 无 / 无 / 无
+    """
+    kinds = category_kinds(cats)
+    if any(k is None for k in kinds):
+        return False
+    return len(set(kinds)) == 3
+
+
+def declares_test_count(text: str, match: re.Match) -> bool:
+    """这句是否**在三元组之外**声明了测试数。
+
+    第十六轮 m-5：分解自己的那几项也是「N test(s)」的写法
+    （「3 test cases, 2 test suites and 1 test batch」）。把它们当成
+    「这句声明了测试数」，就会把普通散文判成自相矛盾 ⇒ 误报。
+    只有**三元组之外**的声明才算「这句声明了测试数」。
+    """
+    s0, s1 = sentence_span(text, match.start(), match.end())
+    for decl in TEST_COUNT_DECL_RE.finditer(text, s0, s1):
+        if match.start() <= decl.start() and decl.end() <= match.end():
+            continue    # 这条声明就是分解自己的一项
+        return True
+    return False
 
 
 def check_readme_numbers(readme_text: str, root: Path,
@@ -693,7 +813,7 @@ def check_readme_numbers(readme_text: str, root: Path,
     covered = {triple_signature(m) for m in matched}
     uncovered = [m for m in generic if triple_signature(m) not in covered]
     #
-    # 第十四轮 m-1 / m-2：**和值级判据**。
+    # 第十四轮 m-1 / m-2：**和值级判据**；第十六轮 m-5：**类别族判据**。
     #
     # 旧判据（第十二轮 m-5 引入）是**句子级代理**：只有当三元组落在
     # 「声明了测试数的句子里」时，才按「分解的类别名越界」报错。它有两个
@@ -709,14 +829,15 @@ def check_readme_numbers(readme_text: str, root: Path,
     #   1. 和值 == 已声明的测试数 → 这是**合规的陈述**，**不报**
     #      （第十四轮 m-2：判据必须区分「矛盾的分解」与「合规的陈述」）。
     #   2. 和值 != 已声明的测试数 → 这是**矛盾的分解**，**报**；但作用域要分两种：
-    #      a. 类别名**亲和**（指向测试的一类：unit/property/regression/test/case）
+    #      a. 三个类别名落在**三个不同的类别族**上（unit / property / regression
+    #         / test / case，第十六轮 m-5 的 `is_suite_breakdown`）
     #         → 无论所在句子有没有声明测试数，都报（第十四轮 m-1 的兜底条件：
     #         这就是 X4/X7/X8 三只逃逸变异被抓住的原因）。
-    #      b. 类别名**不亲和**（纯散文的三元组）→ 只有在**同一句里声明了
+    #      b. 其余三元组（纯散文）→ 只有在**同一句里、三元组之外**声明了
     #         测试数**时才报（那一句自相矛盾）；否则不阻断（第十二轮 m-5 的
-    #         误报面必须保住）。
+    #         误报面必须保住，第十六轮 m-5 把误报面进一步收窄）。
     #
-    # ⚠️ 覆盖边界（README §4.8 照此写）：判据是**词形 + 和值**的，
+    # ⚠️ 覆盖边界（README §4.8 照此写）：判据是**类别族 + 和值**的，
     # 因此「把 unit/property/regression 整个换成别的词、同时和值仍然矛盾、
     # 且同一句里没有声明测试数」的分解**不被检查**。
     for m in uncovered:
@@ -726,21 +847,23 @@ def check_readme_numbers(readme_text: str, root: Path,
             # 合规的陈述：和值与声明的测试数一致 —— 不是缺陷，不阻断。
             continue
         cats = [m.group(i) for i in (2, 4, 6)]
-        if BREAKDOWN_AFFINITY_RE.search(" ".join(cats)):
+        if is_suite_breakdown(cats):
+            kinds = ", ".join(k for k in category_kinds(cats) if k)
             problems.append(problem(
                 "category-sum",
-                f"the README's test breakdown {nums} sums to {total}, "
-                f"but the project declares {expected_tests()} tests "
-                f"(the category names {cats} are outside the whitelist "
-                f"{BREAKDOWN_CATEGORY}, so this triple is read as a breakdown "
-                f"of the suite)"))
-        elif TEST_COUNT_DECL_RE.search(sentence_around(prose, m.start(), m.end())):
+                f"the README states a three-way breakdown of the test suite "
+                f"whose counts {nums} sum to {total}, but the project declares "
+                f"{expected_tests()} tests (the category names {cats} name "
+                f"three different kinds of test - {kinds} - and are therefore "
+                f"read as a breakdown of the suite, although they are outside "
+                f"the whitelist {BREAKDOWN_CATEGORY})"))
+        elif declares_test_count(prose, m):
             problems.append(problem(
                 "declared-sum",
-                f"the README's test breakdown {nums} sums to {total}, "
-                f"but the same sentence declares a test count that this "
-                f"breakdown contradicts (the category names {cats} are "
-                f"outside the whitelist {BREAKDOWN_CATEGORY})"))
+                f"the README states a three-way breakdown whose counts {nums} "
+                f"sum to {total}, but the same sentence declares a test count "
+                f"that this breakdown contradicts (the category names {cats} "
+                f"are outside the whitelist {BREAKDOWN_CATEGORY})"))
     if not matched:
         # No whitelist triple at all: the breakdown is gone entirely.
         problems.append(problem(

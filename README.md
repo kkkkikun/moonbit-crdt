@@ -629,14 +629,20 @@ written. Three independent probes do the work:
   `+`, with `;`, or with `and` instead of commas — no longer hides the sum;
 * the **whitelist probe** reads every three-number / three-category triple in
   the prose **whose category names are on the whitelist**
-  (`unit`/`property`/`regression`/`tests`, optionally with a second word):
-  commas, `+`, `;`, `and`, `、` and `，` all count as separators, and
-  a two-word category name (`unit tests`) counts as a category — so a
-  *second*, contradicting breakdown written in another style is checked too;
+  (`unit`/`property`/`regression`/`tests`, optionally with a second word).
+  Commas, `+`, `;`, `and`, `、` and `，` all count as separators — and so do
+  `/`, `&` and the dashes (`–`, `—`, `~`), because the separator is the only
+  way in: a triple written with a separator the gate does not know would be
+  invisible, and an invisible breakdown is an unchecked breakdown. A two-word
+  category name (`unit tests`) counts as a category — so a *second*,
+  contradicting breakdown written in another style is checked too;
 * the **generic probe** (`GENERIC_BREAKDOWN_RE`) reads the triples whose
   category names are **not** on the whitelist — up to three words per category
-  name (`unit test cases`, `unit suites`, `units`) — and hands them to the
-  sum-level judgement below.
+  name (`unit test cases`, `unit suites`, `units`), where the **last** word of
+  a category name may not be a function word, so that a prose tail is not
+  swallowed into the name (the third category of "… 1 test batch during
+  development." is `test batch`, not `test batch during`) — and hands them to
+  the sum-level judgement below.
 
 A triple whose category names are **outside** the whitelist
 (`unit`/`property`/`regression`/`tests`) is judged by its **sum**, not by the
@@ -648,22 +654,44 @@ sentence it happens to sit in:
   the category names are not on the whitelist;
 * **sum ≠ the declared count → it is a contradicting breakdown, and it is
   reported.** The scope of that rule is stated exactly, because it is bounded:
-  * a triple whose category names refer to a kind of test — `unit`,
-    `property`, `regression`, `test`, `case`, in any word form, up to three
-    words (`unit test cases`) — is reported **wherever** it appears, also when
-    its own sentence declares no test count;
+  * a triple whose three category names fall on **three different kinds of
+    test** — `unit`, `property`, `regression`, `test`, `case`, in any word form,
+    up to three words (`unit test cases`) — is reported **wherever** it
+    appears, also when its own sentence declares no test count;
   * a triple whose category names are something else entirely (`benchmarks`,
     `suites`, `oracles`, `shards`, `replicas`, `zones`) is reported **only**
-    when its own sentence declares a test count, because that sentence is
-    then inconsistent with itself.
+    when its own sentence declares a test count **outside the triple itself**,
+    because that sentence is then inconsistent with itself. A count that is one
+    of the triple's own items ("3 test cases, 2 test suites, 1 test batch") is
+    *not* such a declaration — it is the triple itself.
 
-**What this check does *not* cover.** The judgement is a word-shape plus a
+**Three names of the same kind are not a breakdown.** The judgement above asks
+for three *different* kinds of test, so prose that happens to mention a word
+like `case`, `unit` or `regression` three times is not a breakdown and is not
+reported:
+
+```
+The harness reports 3 case classes, 2 case groups and 1 case family.
+The build has 3 unit variants, 2 unit flavors and 1 unit image.
+The nightly job has 3 regression jobs, 2 regression stages and 1 regression slot.
+```
+
+The same holds for the Chinese spelling (`3 单元测试, 2 单元测试 and 1 单元测试`)
+and for a triple whose names do not name a kind of test at all
+(`16 benchmarks, 11 suites and 11 oracles`). A contradicting breakdown that
+*does* name three different kinds is reported whichever separator it uses:
+
+```
+Historically the suite had 16 unit test cases / 11 property test cases / 11 regression test cases.
+```
+
+**What this check does *not* cover.** The judgement is a category-kind plus a
 sum, so a contradicting breakdown whose category names are neither on the
 whitelist nor test-related (`16 benchmarks, 11 suites and 11 oracles`) is
-**not** reported unless the same sentence declares a test count. Prose that
-merely happens to contain three numbers and three nouns is not a breakdown
-and is not an error — that is a deliberate trade-off, made so that ordinary
-prose cannot turn the gate red.
+**not** reported unless the same sentence declares a test count outside the
+triple. Prose that merely happens to contain three numbers and three nouns is
+not a breakdown and is not an error — that is a deliberate trade-off, made so
+that ordinary prose cannot turn the gate red.
 
 `tools/consistency_selftest.py` is the negative regression: it runs the gate
 over mutated copies of this README and requires every mutation to be caught.
@@ -675,11 +703,20 @@ specifically. Copied onto a tree without that rule the selftest **fails**
 It asserts on **behaviour**, not on wording: each diagnostic carries a stable
 machine code (`anchor-sum`, `anchor-missing`, `whitelist-sum`, `category-sum`,
 `declared-sum`), the selftest checks the number of reported problems and the
-code, and a selftest case re-runs the whole matrix against a copy of the gate
-whose error *wording* has been changed — the verdicts must not move. So a
-harmless rewording of a message can no longer turn CI red, and loosening an
-assertion to "green it" can no longer hide a broken rule. CI runs the selftest
-on every push.
+code, and three **structural** probes re-run the whole matrix against copies
+of the gate whose source has been rewritten — the verdicts must not move:
+
+| probe | what it rewrites | expected |
+|---|---|---|
+| wording probe | every diagnostic **message** (found by AST, not by a phrase) | verdicts unchanged |
+| comment probe | every **comment** in the gate's source | verdicts unchanged |
+| control probe | the **declared test count** (a criterion change) | verdicts **must** change |
+
+The probes are anchored on *structure* — a call's position, a comment token, a
+module-level constant — and never on a phrase that the gate's source also
+contains. So rewriting a message or a comment cannot turn CI red, and the
+control probe proves that the first two are not tautological: a criterion
+change is still seen.
 
 ---
 
@@ -691,10 +728,10 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **131.74 µs ± 11.90 µs** |
-| `orset merge` (1000 elements) | **313.42 µs ± 22.21 µs** |
-| `orset add` (1000 sequential adds) | **17.29 ms ± 1.70 ms** |
-| `lwwregister merge` (1000 keys) | **160.75 µs ± 15.24 µs** |
+| `gcounter merge` (1000 entries) | **128.29 µs ± 9.10 µs** |
+| `orset merge` (1000 elements) | **301.04 µs ± 25.00 µs** |
+| `orset add` (1000 sequential adds) | **16.04 ms ± 1.46 ms** |
+| `lwwregister merge` (1000 keys) | **137.82 µs ± 21.99 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the

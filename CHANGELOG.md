@@ -8,6 +8,65 @@ The project is **not published to the MoonBit registry yet** (see `README.md`
 made at — the commit history, the issues and the pull requests carry the rest
 of the update record.
 
+## Unreleased — the sixteenth-review fixes (2026-11-26)
+
+Fixes for the **three m-level** findings of the **fourteenth** independent
+review (`qa/independent_review_round14.md` in the project workspace) that the
+guard itself was responsible for. The findings are about the *guard*, not
+about the library: the fourteenth round's own fix for the thirteenth review
+(m-1/m-2/m-3) had opened a wider false-positive surface and left a
+separator-shaped escape, and the wording probe had anchored itself on text
+that the guarded source also contains.
+
+### Prose is no longer read as a breakdown (m-5)
+
+The affinity test asked whether *any* of a triple's three category names
+contained `unit` / `property` / `regression` / `test` / `case`. That is a
+word-shape test, so ordinary prose was reported as a contradicting breakdown
+and the gate exited 3 on a perfectly healthy README — for instance "The
+harness reports 3 case classes, 2 case groups and 1 case family." or the
+Chinese "我们运行了 3 单元测试, 2 单元测试 and 1 单元测试。".
+
+The judgement is now a **category-kind** test: a triple is a breakdown of the
+suite when its three category names fall on **three different kinds** of test.
+Three names of the same kind are not a breakdown, and neither is a triple that
+names no kind of test at all. The escape side is untouched: a contradicting
+breakdown that *does* name three different kinds is still reported wherever it
+appears, and a triple that is not a breakdown is still reported when its own
+sentence declares a test count **outside the triple** (the counts of the
+triple itself are not such a declaration).
+
+The diagnostic no longer calls prose a "test breakdown", and the category
+name no longer swallows the tail of the sentence: the last word of a category
+name may not be a function word, so the third category of "… 1 test batch
+during development." is `test batch`, not `test batch during`.
+
+### The separator is no longer the only way in (m-6)
+
+The separator set was `,` `+` `;` `、` `，` `and`. A contradicting breakdown
+written as `16 unit test cases / 11 property test cases / 11 regression test
+cases` — or with `&`, or with a dash — was therefore **invisible**, and the
+gate exited 0 on a README that contradicts itself. `/`, `&` and the dashes
+(`–`, `—`, `~`) are separators now; `&` excludes HTML entities, so an entity
+cannot become a separator.
+
+### The wording probe no longer anchors on text the source also contains (m-7)
+
+The probe rewrote one literal phrase of a diagnostic message. The same phrase
+also appeared in a **comment** of the guarded source, so rewriting the two
+messages left the probe rewriting the comment instead: it compared the gate
+with itself, reported PASS and verified nothing. Rewriting the comment as well
+made the phrase disappear and the probe report FAIL — CI red over a change in
+which not one line of behaviour moved.
+
+The probes are anchored on **structure** now: the wording probe finds every
+`problem(code, message)` call by AST and replaces the **message** argument,
+the comment probe strips every comment token, and a third **control** probe
+changes the declared test count — a criterion change the matrix must see, so
+that the first two cannot be tautological. None of them refers to a phrase the
+guarded source contains, so rewriting a message or a comment can no longer
+turn the selftest red.
+
 ## Unreleased — the thirteenth-review fixes (2026-11-26)
 
 Fixes for the **three m-level** findings of the thirteenth independent review
