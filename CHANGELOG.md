@@ -8,6 +8,62 @@ The project is **not published to the MoonBit registry yet** (see `README.md`
 made at — the commit history, the issues and the pull requests carry the rest
 of the update record.
 
+## Unreleased — the thirteenth-review fixes (2026-11-26)
+
+Fixes for the **three m-level** findings of the thirteenth independent review
+(`qa/independent_review_round13.md` in the project workspace). The one **S**
+finding — the public history still contains commits signed with a real name —
+is an outbound action and is tracked outside this file.
+
+### The breakdown guard no longer misses a contradicting breakdown (m-1)
+
+The generic probe read category names of at most **two** words and only judged
+triples that sat in a sentence declaring a test count. A second, contradicting
+breakdown written with three-word category names (`16 unit test cases, 11
+property test cases and 11 regression test cases`, sum 38 against a declared
+37) or with a category name outside the whitelist in a sentence that declares
+no count was therefore **invisible** — the gate exited 0.
+
+The probe now accepts up to three words per category name, and a triple whose
+category names refer to a kind of test (`unit`, `property`, `regression`,
+`test`, `case`) is judged wherever it appears: if its sum contradicts the
+declared count, it is reported.
+
+### The guard no longer calls a compliant statement a defect (m-2)
+
+The same round found the opposite failure: the old sentence-level proxy
+reported *any* triple with non-whitelist category names that sat next to a
+test count, so the perfectly compliant sentence "The 37 tests are organised as
+12 unit suites, 14 property suites and 11 regression suites." (sum 37) made
+the gate exit 3.
+
+The judgement is now made on the **sum**, not on the sentence: a triple whose
+sum equals the declared count is a compliant statement and is not an error;
+a triple whose sum contradicts it is. The scope of that rule — and what it
+does *not* cover — is stated in `README.md` §4.8.
+
+### The negative regression asserts behaviour, not wording (m-3)
+
+The selftest matched the **error text** (`the same sentence declares`), so a
+harmless rewording of one message turned CI red — and the cheapest way to
+answer a red CI is to loosen the assertion, which is exactly how a tautological
+regression comes back. Every diagnostic now carries a stable machine code
+(`anchor-sum`, `anchor-missing`, `whitelist-sum`, `category-sum`,
+`declared-sum`), the selftest asserts on the number of problems and the code,
+and a selftest case re-runs the whole matrix against a copy of the gate whose
+wording was changed — the verdicts must not move.
+
+The selftest also grew the mutants the review used: three escaping breakdowns
+and one compliant statement that the previous version of the gate mishandled.
+Copied onto the previous tree the selftest **fails** (exit 1) with
+different reasons per case, which is what makes it a regression test instead
+of a tautology.
+
+The evidence was regenerated on the build server after these changes
+(`tools/regenerate_evidence.sh`, exit 0), so the recorded fingerprints match
+the current tree again. Benchmark figures are load-dependent and differ per
+run — that is stated in `README.md` §4.7.
+
 ## Unreleased — the eleventh- and twelfth-review fixes (2026-11-26)
 
 Fixes for the findings of the **eleventh** and **twelfth** independent

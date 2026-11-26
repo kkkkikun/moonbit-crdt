@@ -196,25 +196,78 @@ ANCHOR_ITEM_RE = re.compile(r"(\d+)\s*([A-Za-z\u4e00-\u9fff][\w\u4e00-\u9fff\-]*
 
 GENERIC_CATEGORY_PHRASE = (
     r"([A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff-]*"
-    r"(?:\s+[A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff-]*)?)"
+    r"(?:\s+[A-Za-z\u4e00-\u9fff][A-Za-z0-9_\u4e00-\u9fff-]*){0,2})"
 )
 GENERIC_BREAKDOWN_RE = re.compile(
     # 第十一轮 m-8：分隔符放宽到 `,` `+` `;` `and` `、` `，`（原来只认逗号），
     # 类别名允许拉丁字母或中文 —— 否则「改句式」就能让三元组整条漏检。
     # 第十二轮 m-6：类别名放宽到**最多两个词**（`unit tests` 这种写法），
     # 否则多词类别名的分解对两个探测都不可见。
+    # 第十四轮 m-1：类别名放宽到**最多三个词**（`unit test cases` 这种写法）——
+    # 两词放宽只是把盲区**推后一格**：三词类别名的分解对两个探测依然不可见，
+    # 于是「改写一句自相矛盾的分解」仍然能整条逃逸。
     r"(?<![\d,])(\d+)\s+" + GENERIC_CATEGORY_PHRASE + r"\b\s*"
     + BREAKDOWN_SEP + r"\s*"
     r"(\d+)\s+" + GENERIC_CATEGORY_PHRASE + r"\b\s*"
     + BREAKDOWN_SEP + r"\s*"
     r"(\d+)\s+" + GENERIC_CATEGORY_PHRASE + r"\b"
 )
-# 第十二轮 m-5：通用探测会把**任何**「三个数 + 三个词」都当成分解，
-# 于是一句普通散文（例如 "We ran 5 benchmarks, 3 suites and 2 oracles during
-# development."）被报成「分解用错了类别名」—— 这是**误报**，不是缺陷检出。
-# 修法：只有当这个三元组**落在声明了测试数的句子里**时，才按
-# 「分解的类别名越界」报错（fail closed）；纯散文里的三元组不阻断。
+# 第十四轮 m-1：**测试套件亲和性**。
+#
+# 「分解」是测试套件按类别的划分，所以它的类别名应当指向测试的一类
+# （unit / property / regression / test / case）。纯散文里的三元组
+# （"We ran 5 benchmarks, 3 suites and 2 oracles during development."、
+# "The deployment uses 3 shards, 5 replicas and 2 zones."）没有这种类别名 ——
+# 它们**不是**分解，不阻断。
+#
+# 这个判据是「和值级判据」的**作用域**：只有**亲和**的三元组才按
+# 「和值 ≠ 已声明的测试数」报错（第十四轮 m-1 的兜底条件）；
+# 不亲和的三元组仍然只在「同一句里声明了测试数」时才被追问 ——
+# 那条老路子覆盖的是「同一句话自相矛盾」，与本条不重叠。
+#
+# ⚠️ 覆盖边界（README §4.8 照此写）：亲和性是**词形**判据，
+# 因此「把 unit/property/regression 整个换掉、同时和值仍然矛盾」的分解
+# 只有在**同一句里声明了测试数**时才会被抓住。
+BREAKDOWN_AFFINITY_RE = re.compile(
+    r"\b(?:units?|propert(?:y|ies)|regressions?|tests?|cases?)\b"
+    r"|单元|属性|回归|测试|用例",
+    re.IGNORECASE,
+)
+# 第十四轮 m-2：这一条**不再**是判据的主条件，只在「同一句里声明了测试数」
+# 时用于追问不亲和的三元组（见上面 BREAKDOWN_AFFINITY_RE 的说明）。
 TEST_COUNT_DECL_RE = re.compile(r"\b\d+\s+tests?\b", re.IGNORECASE)
+
+
+# --------------------------------------------------------------------------
+# 第十四轮 m-3：诊断的**文案**与**判据身份**分离。
+#
+# 负向回归（tools/consistency_selftest.py）原来断言的是报错**文案**
+# （`the same sentence declares` 之类）。于是任何一次无害的措辞重构都会让
+# CI 与统一门禁变红 —— 而面对红色的最省事做法就是**把断言改松**
+# （例如只断言「有 ≥1 条问题」），那正好把鉴别力重新抽掉：
+# 这是第十二轮 M-2「恒真回归」的复发路径。
+#
+# 修法：每条诊断带一个**稳定的机器码**（`anchor-sum` / `anchor-missing` /
+# `whitelist-sum` / `category-sum` / `declared-sum` / `breakdown-missing`），
+# 自测按机器码判定，**不**按文案判定。文案可以自由改写。
+#
+# `Problem` 是 `str` 的子类：现有的打印与比较代码一行都不用改，
+# 而 `.code` 给出与文案无关的稳定句柄。
+# --------------------------------------------------------------------------
+class Problem(str):
+    """一条诊断，外加一个稳定的机器码（``.code``）。"""
+
+    __slots__ = ("code",)
+
+    def __new__(cls, code: str, message: str) -> "Problem":
+        obj = super().__new__(cls, message)
+        obj.code = code
+        return obj
+
+
+def problem(code: str, message: str) -> Problem:
+    """造一条带机器码的诊断（文案以机器码开头，日志里可以直接 grep）。"""
+    return Problem(code, f"[{code}] {message}")
 
 
 def project_root() -> Path:
@@ -575,31 +628,31 @@ def check_readme_numbers(readme_text: str, root: Path,
     # 现在：从「N tests in total (...)」锚点取三类数目求和，句式怎么改都拦得住。
     anchors = list(ANCHOR_BREAKDOWN_RE.finditer(prose))
     if not anchors:
-        problems.append(
+        problems.append(problem(
+            "anchor-missing",
             "the README no longer contains the 'N tests in total (...)' breakdown "
             "anchor - the declared count can no longer be cross-checked against "
-            "the three-way sum (fail closed)"
-        )
+            "the three-way sum (fail closed)"))
     for a in anchors:
         total = int(a.group("total"))
         items = ANCHOR_ITEM_RE.findall(a.group("inner"))
         if len(items) != 3:
-            problems.append(
+            problems.append(problem(
+                "anchor-items",
                 "the README's breakdown anchor "
-                f"{a.group(0)[:70]!r} does not list exactly three counts"
-            )
+                f"{a.group(0)[:70]!r} does not list exactly three counts"))
             continue
         nums = [int(n) for n, _ in items]
         if sum(nums) != total:
-            problems.append(
+            problems.append(problem(
+                "anchor-sum",
                 f"the README's test breakdown {nums} sums to {sum(nums)}, "
-                f"but the same sentence declares {total} tests"
-            )
+                f"but the same sentence declares {total} tests"))
         if total != expected_tests():
-            problems.append(
+            problems.append(problem(
+                "anchor-total",
                 f"the README's breakdown anchor declares {total} tests, "
-                f"but the project declares {expected_tests()} tests"
-            )
+                f"but the project declares {expected_tests()} tests"))
 
     # --- the suite breakdown must add up to the declared count ---
     # Round eight (m3): the old code took only the **first** match, so a
@@ -610,10 +663,10 @@ def check_readme_numbers(readme_text: str, root: Path,
         # 第十二轮：类别名现在**也是捕获组**，所以三个数是第 1/3/5 组。
         nums = [int(m.group(i)) for i in (1, 3, 5)]   # the three counts
         if sum(nums) != expected_tests():
-            problems.append(
+            problems.append(problem(
+                "whitelist-sum",
                 f"the README's test breakdown {nums} sums to {sum(nums)}, "
-                f"but the project declares {expected_tests()} tests"
-            )
+                f"but the project declares {expected_tests()} tests"))
     # Round nine (n1): **fail closed**.  If the whitelist pattern matched
     # nothing but a generic "N word, N word, N word" triple exists, the
     # breakdown's category names are outside the whitelist and the sum was
@@ -639,27 +692,61 @@ def check_readme_numbers(readme_text: str, root: Path,
     # 区间就会错位，于是合法的分解会被误报成「类别名越界」。
     covered = {triple_signature(m) for m in matched}
     uncovered = [m for m in generic if triple_signature(m) not in covered]
-    # 第十二轮 m-5：只有**落在声明了测试数的句子里**的三元组才算
-    # 「分解」；纯散文里的三元组（"5 benchmarks, 3 suites and 2 oracles"）
-    # 不阻断 —— 那不是缺陷，是误报。
-    suspicious = [
-        m for m in uncovered
-        if TEST_COUNT_DECL_RE.search(sentence_around(prose, m.start(), m.end()))
-    ]
+    #
+    # 第十四轮 m-1 / m-2：**和值级判据**。
+    #
+    # 旧判据（第十二轮 m-5 引入）是**句子级代理**：只有当三元组落在
+    # 「声明了测试数的句子里」时，才按「分解的类别名越界」报错。它有两个
+    # 相反的毛病（第十三轮复评的 m-1 与 m-2）：
+    #
+    #   * m-1（漏检）：一句**自相矛盾**的分解，只要所在句子没写「N tests」、
+    #     类别名又不是白名单/两词形式，就**整条看不见** → 门禁 exit 0。
+    #   * m-2（误报）：一句**完全合规**的陈述
+    #     （「The 37 tests are organised as 12 unit suites, 14 property suites
+    #     and 11 regression suites.」，和值 = 37 = 声明数）会被判错 → 门禁 exit 3。
+    #
+    # 新判据：**先看和值，再看作用域**。
+    #   1. 和值 == 已声明的测试数 → 这是**合规的陈述**，**不报**
+    #      （第十四轮 m-2：判据必须区分「矛盾的分解」与「合规的陈述」）。
+    #   2. 和值 != 已声明的测试数 → 这是**矛盾的分解**，**报**；但作用域要分两种：
+    #      a. 类别名**亲和**（指向测试的一类：unit/property/regression/test/case）
+    #         → 无论所在句子有没有声明测试数，都报（第十四轮 m-1 的兜底条件：
+    #         这就是 X4/X7/X8 三只逃逸变异被抓住的原因）。
+    #      b. 类别名**不亲和**（纯散文的三元组）→ 只有在**同一句里声明了
+    #         测试数**时才报（那一句自相矛盾）；否则不阻断（第十二轮 m-5 的
+    #         误报面必须保住）。
+    #
+    # ⚠️ 覆盖边界（README §4.8 照此写）：判据是**词形 + 和值**的，
+    # 因此「把 unit/property/regression 整个换成别的词、同时和值仍然矛盾、
+    # 且同一句里没有声明测试数」的分解**不被检查**。
+    for m in uncovered:
+        nums = [int(m.group(i)) for i in (1, 3, 5)]   # the three counts
+        total = sum(nums)
+        if total == expected_tests():
+            # 合规的陈述：和值与声明的测试数一致 —— 不是缺陷，不阻断。
+            continue
+        cats = [m.group(i) for i in (2, 4, 6)]
+        if BREAKDOWN_AFFINITY_RE.search(" ".join(cats)):
+            problems.append(problem(
+                "category-sum",
+                f"the README's test breakdown {nums} sums to {total}, "
+                f"but the project declares {expected_tests()} tests "
+                f"(the category names {cats} are outside the whitelist "
+                f"{BREAKDOWN_CATEGORY}, so this triple is read as a breakdown "
+                f"of the suite)"))
+        elif TEST_COUNT_DECL_RE.search(sentence_around(prose, m.start(), m.end())):
+            problems.append(problem(
+                "declared-sum",
+                f"the README's test breakdown {nums} sums to {total}, "
+                f"but the same sentence declares a test count that this "
+                f"breakdown contradicts (the category names {cats} are "
+                f"outside the whitelist {BREAKDOWN_CATEGORY})"))
     if not matched:
         # No whitelist triple at all: the breakdown is gone entirely.
-        problems.append(
+        problems.append(problem(
+            "breakdown-missing",
             "the README no longer contains a test-suite breakdown — the "
-            "declared count can no longer be cross-checked against a sum"
-        )
-    elif suspicious:
-        shown = " | ".join(repr(m.group(0)) for m in suspicious[:3])
-        problems.append(
-            "the README's test breakdown uses category names outside the "
-            f"whitelist ({BREAKDOWN_CATEGORY}): found {shown} — "
-            "the breakdown's sum is therefore NOT verified; either restore the "
-            "documented category names or extend the whitelist deliberately"
-        )
+            "declared count can no longer be cross-checked against a sum"))
 
     return problems
 

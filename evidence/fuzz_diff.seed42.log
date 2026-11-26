@@ -1,8 +1,8 @@
 # seed=42 cases=600 max_ops=25
-# code fingerprint: e34d4df1df59abb8e6393797e81674e04ba8528d6a8babab95432788e54bfb39
+# code fingerprint: 29093161084b94e27e522e5f48ad516e9e70dd6c2c5eadc27259c00b3d72c3bc
 # families: gcounter,pncounter,orset,lww  (cases is per family)
 $ python3 tools/fuzz_diff.py --cases 600 --seed 42 --max-ops 25 --moon-cmd "moon run cmd/replay --"
-# code fingerprint: e34d4df1df59abb8e6393797e81674e04ba8528d6a8babab95432788e54bfb39
+# code fingerprint: 29093161084b94e27e522e5f48ad516e9e70dd6c2c5eadc27259c00b3d72c3bc
 [ok] gcounter: 600 cases — MoonBit and the reference agree
 [ok] pncounter: 600 cases — MoonBit and the reference agree
 [ok] orset: 600 cases — MoonBit and the reference agree

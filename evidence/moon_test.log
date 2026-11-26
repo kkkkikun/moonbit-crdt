@@ -1,4 +1,4 @@
 # moon test
-# code fingerprint: e34d4df1df59abb8e6393797e81674e04ba8528d6a8babab95432788e54bfb39
+# code fingerprint: 29093161084b94e27e522e5f48ad516e9e70dd6c2c5eadc27259c00b3d72c3bc
 $ moon test
 Total tests: 37, passed: 37, failed: 0.

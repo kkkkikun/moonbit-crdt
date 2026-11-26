@@ -622,20 +622,48 @@ than about some commit in the same repository.
 §4.1 states the breakdown inside the sentence that declares the test count.
 The gate checks that the three numbers of that breakdown add up to the number
 the same sentence declares — and it does **not** depend on how the sentence is
-written. Two independent probes do the work:
+written. Three independent probes do the work:
 
 * the **anchor probe** (`ANCHOR_BREAKDOWN_RE`) reads the numbers out of the
   `N tests in total (...)` anchor itself, so re-writing the parentheses — with
   `+`, with `;`, or with `and` instead of commas — no longer hides the sum;
 * the **whitelist probe** reads every three-number / three-category triple in
-  the prose: commas, `+`, `;`, `and`, `、` and `，` all count as separators, and
+  the prose **whose category names are on the whitelist**
+  (`unit`/`property`/`regression`/`tests`, optionally with a second word):
+  commas, `+`, `;`, `and`, `、` and `，` all count as separators, and
   a two-word category name (`unit tests`) counts as a category — so a
-  *second*, contradicting breakdown written in another style is checked too.
+  *second*, contradicting breakdown written in another style is checked too;
+* the **generic probe** (`GENERIC_BREAKDOWN_RE`) reads the triples whose
+  category names are **not** on the whitelist — up to three words per category
+  name (`unit test cases`, `unit suites`, `units`) — and hands them to the
+  sum-level judgement below.
 
-A triple whose category names are outside the whitelist
-(`unit`/`property`/`regression`/`tests`) is reported **only** when it sits in a
-sentence that declares a test count: ordinary prose that happens to contain
-three numbers and three nouns is not a breakdown and is not an error.
+A triple whose category names are **outside** the whitelist
+(`unit`/`property`/`regression`/`tests`) is judged by its **sum**, not by the
+sentence it happens to sit in:
+
+* **sum == the declared count → it is a compliant statement, not an error.**
+  "The 37 tests are organised as 12 unit suites, 14 property suites and 11
+  regression suites." adds up to 37, so the gate leaves it alone even though
+  the category names are not on the whitelist;
+* **sum ≠ the declared count → it is a contradicting breakdown, and it is
+  reported.** The scope of that rule is stated exactly, because it is bounded:
+  * a triple whose category names refer to a kind of test — `unit`,
+    `property`, `regression`, `test`, `case`, in any word form, up to three
+    words (`unit test cases`) — is reported **wherever** it appears, also when
+    its own sentence declares no test count;
+  * a triple whose category names are something else entirely (`benchmarks`,
+    `suites`, `oracles`, `shards`, `replicas`, `zones`) is reported **only**
+    when its own sentence declares a test count, because that sentence is
+    then inconsistent with itself.
+
+**What this check does *not* cover.** The judgement is a word-shape plus a
+sum, so a contradicting breakdown whose category names are neither on the
+whitelist nor test-related (`16 benchmarks, 11 suites and 11 oracles`) is
+**not** reported unless the same sentence declares a test count. Prose that
+merely happens to contain three numbers and three nouns is not a breakdown
+and is not an error — that is a deliberate trade-off, made so that ordinary
+prose cannot turn the gate red.
 
 `tools/consistency_selftest.py` is the negative regression: it runs the gate
 over mutated copies of this README and requires every mutation to be caught.
@@ -644,7 +672,14 @@ mutation can only be reported by the rule under test; and the mutations that
 change the sentence's *shape* have to be reported by the **anchor** rule
 specifically. Copied onto a tree without that rule the selftest **fails**
 (exit 1) — which is what makes it a regression test instead of a tautology.
-CI runs it on every push.
+It asserts on **behaviour**, not on wording: each diagnostic carries a stable
+machine code (`anchor-sum`, `anchor-missing`, `whitelist-sum`, `category-sum`,
+`declared-sum`), the selftest checks the number of reported problems and the
+code, and a selftest case re-runs the whole matrix against a copy of the gate
+whose error *wording* has been changed — the verdicts must not move. So a
+harmless rewording of a message can no longer turn CI red, and loosening an
+assertion to "green it" can no longer hide a broken rule. CI runs the selftest
+on every push.
 
 ---
 
@@ -656,10 +691,10 @@ application, because a merge happens on every sync.
 
 | Benchmark | Time (mean ± σ) |
 |---|---|
-| `gcounter merge` (1000 entries) | **132.63 µs ± 12.47 µs** |
-| `orset merge` (1000 elements) | **311.77 µs ± 53.27 µs** |
-| `orset add` (1000 sequential adds) | **15.48 ms ± 1.66 ms** |
-| `lwwregister merge` (1000 keys) | **156.41 µs ± 8.73 µs** |
+| `gcounter merge` (1000 entries) | **131.74 µs ± 11.90 µs** |
+| `orset merge` (1000 elements) | **313.42 µs ± 22.21 µs** |
+| `orset add` (1000 sequential adds) | **17.29 ms ± 1.70 ms** |
+| `lwwregister merge` (1000 keys) | **160.75 µs ± 15.24 µs** |
 
 The benchmark names above are the ones `moon bench` prints. "1000 entries" means 1000
 distinct replica keys (one increment each) — a counter with a single key would make the
